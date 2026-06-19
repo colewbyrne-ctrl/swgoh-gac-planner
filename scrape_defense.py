@@ -319,3 +319,4 @@ df = asyncio.run(
 
 print("\nFinal DataFrame:")
 print(df)
+df.to_csv("defense_teams.csv", index=False)
