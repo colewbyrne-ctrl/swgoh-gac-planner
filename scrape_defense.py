@@ -272,10 +272,6 @@ async def scrape_defense(
             limit=history_limit
         )
 
-        print("GAC links found:")
-        for link in links:
-            print(link)
-
         for link in links:
             resp = await tab.request.get(link)
 

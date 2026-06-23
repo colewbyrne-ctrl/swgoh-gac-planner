@@ -398,7 +398,6 @@ for index, row in df.iterrows():
             f"https://swgoh.gg/gac/ship-counters/{leader}/?season_id=CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
         )
 
-print(ship_urls)
 counter_df = asyncio.run(
     scrape_all_counters(
         character_urls=character_urls,
