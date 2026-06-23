@@ -112,17 +112,24 @@ def extract_battle_stats(battle) -> dict:
 
 def extract_defense_sides_from_gac_html(html: str) -> list[dict]:
     """
-    Extracts every defense-side team/fleet from the battle summaries.
+    Extracts defense-side teams/fleets from the battles-defense tab.
 
     Important:
-    This still includes both players' defense teams.
-    Later, we find the ship -> character transition to keep only the wanted second section.
+    SWGOH.GG has separate battle tabs. The battles-defense tab is the section
+    labeled like "Player A's attacks / Player B's defenses", which is the
+    opponent defense data we want. Do not infer the split from ship/character
+    ordering because ship battles can appear between character battles.
     """
     soup = BeautifulSoup(html, "lxml")
 
     defense_entries = []
 
-    battles = soup.select(".gac-counters-battle-summary")
+    battles_container = soup.select_one("#battles-defense")
+
+    if battles_container is None:
+        raise ValueError("Could not find #battles-defense tab in GAC history HTML.")
+
+    battles = battles_container.select(".gac-counters-battle-summary")
 
     for battle_index, battle in enumerate(battles, start=1):
         stats = extract_battle_stats(battle)
@@ -157,35 +164,6 @@ def extract_defense_sides_from_gac_html(html: str) -> list[dict]:
         })
 
     return defense_entries
-
-
-def take_second_player_defenses_after_first_ship_section(entries: list[dict]) -> list[dict]:
-    """
-    Definitive split rule based on page order.
-
-    Expected page order:
-    1. Player 1 character defenses
-    2. Player 1 ship defenses
-    3. Player 2 character defenses  <-- wanted info starts here
-    4. Player 2 ship defenses
-
-    So:
-    - Wait until we see at least one ship defense.
-    - Then the first character defense after that ship section starts player 2.
-    """
-    seen_ship_section = False
-
-    for i, entry in enumerate(entries):
-        if entry["combat_type"] == "ships":
-            seen_ship_section = True
-            continue
-
-        if seen_ship_section and entry["combat_type"] == "characters":
-            return entries[i:]
-
-    raise ValueError(
-        "Could not find the transition from first player's ships to second player's characters."
-    )
 
 
 def dedupe_defenses_by_leader(entries: list[dict]) -> list[dict]:
@@ -226,16 +204,10 @@ def dedupe_defenses_by_leader(entries: list[dict]) -> list[dict]:
 def extract_wanted_defense_teams(html: str) -> list[dict]:
     """
     Full defense extraction pipeline:
-    1. Extract every defense-side entry from the page.
-    2. Find the boundary after player 1's ship section.
-    3. Keep everything after that boundary.
-    4. Dedupe repeated attempts by leader/capital ship.
+    1. Extract defense-side entries from the battles-defense tab.
+    2. Dedupe repeated attempts by leader/capital ship.
     """
-    all_entries = extract_defense_sides_from_gac_html(html)
-
-    wanted_entries = take_second_player_defenses_after_first_ship_section(
-        all_entries
-    )
+    wanted_entries = extract_defense_sides_from_gac_html(html)
 
     unique_wanted_entries = dedupe_defenses_by_leader(wanted_entries)
 
@@ -305,14 +277,19 @@ async def scrape_defense(
     return df
 
 
-df = asyncio.run(
-    scrape_defense(
-        "https://swgoh.gg/p/848865876/gac-history/",
-        player_id="848865876",
-        history_limit=1,
+def main() -> None:
+    df = asyncio.run(
+        scrape_defense(
+            "https://swgoh.gg/p/848865876/gac-history/",
+            player_id="848865876",
+            history_limit=3,
+        )
     )
-)
 
-print("\nFinal DataFrame:")
-print(df)
-df.to_csv("defense_teams.csv", index=False)
+    print("\nFinal DataFrame:")
+    print(df)
+    df.to_csv("defense_teams.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()

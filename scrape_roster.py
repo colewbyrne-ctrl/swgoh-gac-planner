@@ -473,14 +473,19 @@ async def scrape_roster(player_id: str, debug: bool = True) -> pd.DataFrame:
     return roster_df
 
 
-roster_df = asyncio.run(
-    scrape_roster(
-        player_id="848865876",
-        debug=True,
+def main() -> None:
+    roster_df = asyncio.run(
+        scrape_roster(
+            player_id="848865876",
+            debug=True,
+        )
     )
-)
 
-print("\nFinal roster DataFrame:")
-print(roster_df)
+    print("\nFinal roster DataFrame:")
+    print(roster_df)
 
-roster_df.to_csv("roster_units.csv", index=False)
+    roster_df.to_csv("roster_units.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()

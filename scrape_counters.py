@@ -2,6 +2,7 @@ import asyncio
 from pydoll.browser import Chrome
 from pydoll.browser.options import ChromiumOptions
 from bs4 import BeautifulSoup
+import ast
 import re
 import pandas as pd
 from urllib.parse import urlparse, parse_qs
@@ -41,6 +42,35 @@ def dedupe_units(units: list[str]) -> list[str]:
             clean.append(unit)
 
     return clean
+
+
+def parse_unit_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(unit).strip() for unit in value if str(unit).strip()]
+
+    if pd.isna(value):
+        return []
+
+    text = str(value).strip()
+    if not text:
+        return []
+
+    try:
+        parsed = ast.literal_eval(text)
+        if isinstance(parsed, (list, tuple)):
+            return [str(unit).strip() for unit in parsed if str(unit).strip()]
+    except (ValueError, SyntaxError):
+        pass
+
+    return [
+        unit.strip().strip("'\"[]")
+        for unit in text.split(",")
+        if unit.strip().strip("'\"[]")
+    ]
+
+
+def normalize_combat_type(value) -> str:
+    return str(value).strip().lower()
 
 
 def looks_like_counter_row(div) -> bool:
@@ -242,7 +272,52 @@ def parse_ship_counter_page(html: str, url: str) -> pd.DataFrame:
     )
 
 
-async def get_rendered_html(tab, url: str, wait_seconds: int = 5) -> str:
+def normalize_html_result(result) -> str:
+    """
+    Convert Pydoll script/evaluate/page-source results into a real HTML string.
+    """
+    if isinstance(result, str):
+        return result
+
+    if isinstance(result, dict):
+        for key in ["value", "data"]:
+            value = result.get(key)
+            if isinstance(value, str):
+                return value
+
+        inner = result.get("result")
+
+        if isinstance(inner, str):
+            return inner
+
+        if isinstance(inner, dict):
+            value = inner.get("value")
+            if isinstance(value, str):
+                return value
+
+            inner_inner = inner.get("result")
+
+            if isinstance(inner_inner, str):
+                return inner_inner
+
+            if isinstance(inner_inner, dict):
+                value = inner_inner.get("value")
+                if isinstance(value, str):
+                    return value
+
+        raise TypeError(
+            f"Could not extract HTML string from dict. "
+            f"Top-level keys: {list(result.keys())}. "
+            f"Result field type: {type(result.get('result'))}. "
+            f"Result field preview: {str(result.get('result'))[:500]}"
+        )
+
+    raise TypeError(
+        f"Expected rendered HTML to be str or dict, got {type(result)}"
+    )
+
+
+async def get_rendered_html(tab, url: str, wait_seconds: int = 2) -> str:
     """
     Loads a page normally in the browser and returns rendered DOM HTML.
 
@@ -252,13 +327,46 @@ async def get_rendered_html(tab, url: str, wait_seconds: int = 5) -> str:
     await tab.go_to(url)
     await asyncio.sleep(wait_seconds)
 
-    try:
-        return await tab.execute_script("return document.documentElement.outerHTML")
-    except Exception:
+    execute_script = getattr(tab, "execute_script", None)
+
+    if execute_script is not None:
         try:
-            return await tab.evaluate("document.documentElement.outerHTML")
-        except Exception:
-            return await tab.get_page_source()
+            result = await execute_script("return document.documentElement.outerHTML")
+            return normalize_html_result(result)
+        except Exception as e:
+            print("execute_script failed:", e)
+
+    evaluate = getattr(tab, "evaluate", None)
+
+    if evaluate is not None:
+        try:
+            result = await evaluate("document.documentElement.outerHTML")
+            return normalize_html_result(result)
+        except Exception as e:
+            print("evaluate failed:", e)
+
+    get_page_source = getattr(tab, "get_page_source", None)
+
+    if get_page_source is not None:
+        try:
+            result = await get_page_source()
+            return normalize_html_result(result)
+        except Exception as e:
+            print("get_page_source failed:", e)
+
+    raise RuntimeError("Could not get rendered HTML from this Pydoll tab.")
+
+
+async def fetch_character_counter_html(tab, url: str) -> str:
+    """
+    Try the fast request path first, then fall back to rendered DOM.
+    """
+    try:
+        resp = await tab.request.get(url)
+        return resp.text
+    except Exception as e:
+        print(f"Character request failed, falling back to rendered HTML: {e}")
+        return await get_rendered_html(tab, url, wait_seconds=2)
 
 
 async def scrape_character_counters(urls: list[str]) -> pd.DataFrame:
@@ -284,9 +392,13 @@ async def scrape_character_counters(urls: list[str]) -> pd.DataFrame:
         for url in urls:
             print(f"\nScraping CHARACTER counter page: {url}")
 
-            resp = await tab.request.get(url)
+            try:
+                html = await fetch_character_counter_html(tab, url)
+            except Exception as e:
+                print(f"Could not fetch character counter page: {e}")
+                continue
 
-            df = parse_character_counter_page(resp.text, url)
+            df = parse_character_counter_page(html, url)
 
             if df.empty:
                 print("No character rows parsed.")
@@ -335,9 +447,13 @@ async def scrape_ship_counters(urls: list[str]) -> pd.DataFrame:
         for url in urls:
             print(f"\nScraping SHIP counter page: {url}")
 
-            resp = await tab.request.get(url)
+            try:
+                html = await get_rendered_html(tab, url, wait_seconds=2)
+            except Exception as e:
+                print(f"Could not fetch ship counter page: {e}")
+                continue
 
-            df = parse_ship_counter_page(resp.text, url)
+            df = parse_ship_counter_page(html, url)
 
             if df.empty:
                 print("No ship rows parsed.")
@@ -378,34 +494,95 @@ async def scrape_all_counters(character_urls: list[str], ship_urls: list[str]) -
     return pd.concat(dfs, ignore_index=True)
 
 
-df = pd.read_csv("defense_teams.csv")
+def build_counter_urls(defense_df: pd.DataFrame) -> tuple[list[str], list[str], dict[tuple[str, str], int]]:
+    character_urls = []
+    ship_urls = []
+    skipped_duplicate_counts = {}
+    seen_teams = set()
 
-character_urls = []
-ship_urls = []
+    for index, row in defense_df.iterrows():
+        leader = str(row["leader"]).strip()
+        combat_type = normalize_combat_type(row["combat_type"])
+        units = tuple(parse_unit_list(row.get("units", [])))
+        leader_key = (combat_type, leader)
+        team_key = (combat_type, leader, units)
 
-for index, row in df.iterrows():
-    leader = row["leader"]
-    combat_type = row["combat_type"]
+        if team_key in seen_teams:
+            skipped_duplicate_counts[leader_key] = skipped_duplicate_counts.get(leader_key, 0) + 1
+            print(
+                f"Skipping duplicate row {index}: "
+                f"leader={leader}, combat_type={combat_type}, "
+                f"duplicate team repeat #{skipped_duplicate_counts[leader_key]}"
+            )
+            continue
 
-    print(f"Processing row {index}: leader={leader}, combat_type={combat_type}")
+        seen_teams.add(team_key)
 
-    if combat_type == "characters":
-        character_urls.append(
-            f"https://swgoh.gg/gac/counters/{leader}/"
-        )
-    else:
-        ship_urls.append(
-            f"https://swgoh.gg/gac/ship-counters/{leader}/?season_id=CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
-        )
+        print(f"Processing row {index}: leader={leader}, combat_type={combat_type}")
 
-counter_df = asyncio.run(
-    scrape_all_counters(
-        character_urls=character_urls,
-        ship_urls=ship_urls,
+        if combat_type == "characters":
+            character_urls.append(
+                f"https://swgoh.gg/gac/counters/{leader}/"
+            )
+        else:
+            if combat_type != "ships":
+                print(f"Unknown combat_type for row {index}: {row['combat_type']}. Treating as ships.")
+
+            ship_urls.append(
+                f"https://swgoh.gg/gac/ship-counters/{leader}/?season_id=CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
+            )
+
+    return character_urls, ship_urls, skipped_duplicate_counts
+
+
+def add_leader_repeat_counts(counter_df: pd.DataFrame, repeat_counts: dict[tuple[str, str], int]) -> pd.DataFrame:
+    if counter_df.empty:
+        return counter_df
+
+    counter_df = counter_df.copy()
+
+    counter_df["skipped_duplicate_team_count"] = counter_df.apply(
+        lambda row: repeat_counts.get(
+            (normalize_combat_type(row.get("combat_type")), str(row.get("defense_leader")).strip()),
+            0,
+        ),
+        axis=1,
     )
-)
 
-print("\nFinal counter DataFrame:")
-print(counter_df)
+    return counter_df
 
-counter_df.to_csv("counter_results.csv", index=False)
+
+def print_repeat_summary(repeat_counts: dict[tuple[str, str], int]) -> None:
+    print("\nDuplicate defense teams skipped:")
+
+    if not repeat_counts:
+        print("None")
+        return
+
+    for (combat_type, leader), repeat_count in sorted(repeat_counts.items()):
+        print(f"- {combat_type} {leader}: {repeat_count} duplicate team repeat(s)")
+
+
+def main() -> None:
+    df = pd.read_csv("defense_teams.csv")
+
+    character_urls, ship_urls, repeat_counts = build_counter_urls(df)
+    print_repeat_summary(repeat_counts)
+
+    counter_df = asyncio.run(
+        scrape_all_counters(
+            character_urls=character_urls,
+            ship_urls=ship_urls,
+        )
+    )
+
+    counter_df = add_leader_repeat_counts(counter_df, repeat_counts)
+
+    print("\nFinal counter DataFrame:")
+    print(counter_df)
+
+    counter_df.to_csv("counter_results.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()
