@@ -11,7 +11,7 @@ OUTPUT_FILE = "strategy_plan.csv"
 MIN_WIN_PERCENT = 85
 MIN_SEEN = 10
 FALLBACK_MIN_SEEN = 1
-MAX_COUNTER_OPTIONS_PER_DEFENSE = 15
+MAX_COUNTER_OPTIONS_PER_DEFENSE = 30
 
 
 def parse_unit_list(value) -> list[str]:
@@ -180,7 +180,38 @@ def safe_float(value, default=None):
         return default
 
 
-def roster_strength_bonus(
+def unit_cost(unit: str, combat_type: str, roster_by_unit: dict[str, pd.Series]) -> float:
+    roster_row = roster_by_unit.get(unit)
+
+    if roster_row is None:
+        return 0.0
+
+    stars = safe_float(roster_row.get("stars"), 0.0)
+    completion = safe_float(roster_row.get("completion_percent"), 0.0)
+    cost = 1.0 + (stars / 7.0) + (completion / 100.0)
+
+    if combat_type == "ships":
+        ship_level = safe_float(roster_row.get("ship_level"), 0.0)
+        cost += ship_level / 25.0
+
+        if str(roster_row.get("is_capital_ship", "")).lower() == "true":
+            cost += 5.0
+    else:
+        relic_level = safe_float(roster_row.get("relic_level"), 0.0)
+        zeta_count = safe_float(roster_row.get("zeta_count"), 0.0)
+        cost += relic_level * 0.7
+        cost += zeta_count * 0.25
+
+        if str(roster_row.get("is_galactic_legend", "")).lower() == "true":
+            cost += 10.0
+
+        if str(roster_row.get("has_ultimate", "")).lower() == "true":
+            cost += 2.0
+
+    return cost
+
+
+def counter_cost(
     units: list[str],
     combat_type: str,
     roster_by_unit: dict[str, pd.Series],
@@ -188,35 +219,10 @@ def roster_strength_bonus(
     if not units:
         return 0.0
 
-    bonuses = []
-
-    for unit in units:
-        roster_row = roster_by_unit.get(unit)
-        if roster_row is None:
-            continue
-
-        stars = safe_float(roster_row.get("stars"), 0.0)
-        completion = safe_float(roster_row.get("completion_percent"), 0.0)
-
-        if combat_type == "ships":
-            ship_level = safe_float(roster_row.get("ship_level"), 0.0)
-            unit_bonus = (stars / 7.0) * 1.2
-            unit_bonus += (completion / 100.0) * 1.0
-            unit_bonus += (ship_level / 100.0) * 0.8
-        else:
-            relic_level = safe_float(roster_row.get("relic_level"), 0.0)
-            zeta_count = safe_float(roster_row.get("zeta_count"), 0.0)
-            unit_bonus = (stars / 7.0) * 0.8
-            unit_bonus += min(relic_level, 9.0) / 9.0 * 1.2
-            unit_bonus += min(zeta_count, 6.0) / 6.0 * 0.8
-            unit_bonus += (completion / 100.0) * 0.8
-
-        bonuses.append(unit_bonus)
-
-    if not bonuses:
-        return 0.0
-
-    return sum(bonuses) / len(bonuses)
+    return sum(
+        unit_cost(unit, combat_type, roster_by_unit)
+        for unit in units
+    )
 
 
 def score_counter(counter: pd.Series, roster_by_unit: dict[str, pd.Series]) -> float:
@@ -225,12 +231,28 @@ def score_counter(counter: pd.Series, roster_by_unit: dict[str, pd.Series]) -> f
     avg_banners = safe_float(counter.get("avg_banners"), 0.0)
     combat_type = str(counter.get("combat_type", ""))
     counter_units = counter.get("counter_units", [])
+    cost = counter_cost(counter_units, combat_type, roster_by_unit)
+
+    # Valid counters have already cleared the win-rate floor. From there,
+    # preserve premium teams by preferring the cheapest reliable answer.
+    score = win_percent
+    score += min(math.log10(max(seen, 1.0)), 3.0) * 1.5
+
+    if avg_banners > 0:
+        score += min(avg_banners / 60.0, 1.5)
+
+    score -= cost
+
+    return round(score, 3)
+
+
+def reliability_score_counter(counter: pd.Series) -> float:
+    win_percent = safe_float(counter.get("win_percent"), 0.0)
+    seen = safe_float(counter.get("seen"), 0.0)
+    avg_banners = safe_float(counter.get("avg_banners"), 0.0)
 
     score = win_percent
-
-    # Reliability matters, but the win rate remains the main signal.
     score += min(math.log10(max(seen, 1.0)), 3.0) * 1.5
-    score += roster_strength_bonus(counter_units, combat_type, roster_by_unit)
 
     if avg_banners > 0:
         score += min(avg_banners / 60.0, 1.5)
@@ -252,6 +274,17 @@ def find_valid_counters_for_defense(
     if not required_columns.issubset(counters_df.columns):
         missing = sorted(required_columns - set(counters_df.columns))
         warnings["missing_columns"].append(f"counter_results.csv missing columns: {missing}")
+        return []
+
+    leader_rows = counters_df[
+        (counters_df["combat_type"].astype(str) == combat_type)
+        & (counters_df["defense_leader"].astype(str) == leader)
+    ]
+
+    if leader_rows.empty:
+        warnings["missing_counter_data"].append(
+            f"{leader}: no rows found in counter_results.csv for this defense leader"
+        )
         return []
 
     possible = counters_df[
@@ -304,6 +337,11 @@ def find_valid_counters_for_defense(
             continue
 
         counter_dict = counter.to_dict()
+        counter_dict["counter_cost"] = round(
+            counter_cost(counter_units, combat_type, roster_by_unit),
+            3,
+        )
+        counter_dict["reliability_score"] = reliability_score_counter(counter)
         counter_dict["score"] = score_counter(counter, roster_by_unit)
         counter_dict["roster_note"] = roster_note
 
@@ -321,7 +359,13 @@ def find_valid_counters_for_defense(
 
         valid_counters.append(counter_dict)
 
-    valid_counters.sort(key=lambda row: row["score"], reverse=True)
+    valid_counters.sort(
+        key=lambda row: (
+            row["reliability_score"],
+            row["score"],
+        ),
+        reverse=True,
+    )
     return dedupe_counter_options(valid_counters)
 
 
@@ -347,7 +391,13 @@ def dedupe_counter_options(valid_counters: list[dict]) -> list[dict]:
         best_by_units[key]
         for key in order
     ]
-    deduped.sort(key=lambda row: row["score"], reverse=True)
+    deduped.sort(
+        key=lambda row: (
+            row["reliability_score"],
+            row["score"],
+        ),
+        reverse=True,
+    )
 
     return deduped
 
@@ -363,6 +413,7 @@ def empty_plan_row(defense: pd.Series, status: str, reason: str) -> dict:
         "win_percent": "",
         "seen": "",
         "avg_banners": "",
+        "counter_cost": "",
         "score": "",
         "status": status,
         "reason": reason,
@@ -385,6 +436,7 @@ def assigned_plan_row(defense: pd.Series, counter: dict) -> dict:
         "win_percent": counter.get("win_percent", ""),
         "seen": counter.get("seen", ""),
         "avg_banners": counter.get("avg_banners", ""),
+        "counter_cost": counter.get("counter_cost", ""),
         "score": counter.get("score", ""),
         "status": "assigned",
         "reason": reason,
@@ -404,6 +456,7 @@ def choose_strategy(
         "low_sample_fallback": [],
         "unit_overlap": [],
         "missing_columns": [],
+        "missing_counter_data": [],
         "duplicate_defenses": [],
     }
 
@@ -434,7 +487,7 @@ def choose_strategy(
     )
 
     for item in defense_options:
-        item["valid_counters"] = item["valid_counters"][:MAX_COUNTER_OPTIONS_PER_DEFENSE]
+        item["valid_counters"] = select_search_options(item["valid_counters"])
 
     best_assignment = find_best_assignment(defense_options)
     planned_rows_by_index = {}
@@ -494,7 +547,12 @@ def find_best_assignment(defense_options: list[dict]) -> dict[int, dict]:
     best_score = (-1, -1.0)
     best_assignment = {}
 
-    def search(position: int, used_units: dict[str, set], assignment: dict[int, dict], total_score: float) -> None:
+    def search(
+        position: int,
+        used_units: dict[str, set],
+        assignment: dict[int, dict],
+        total_score: float,
+    ) -> None:
         nonlocal best_score, best_assignment
 
         assigned_count = len(assignment)
@@ -504,7 +562,10 @@ def find_best_assignment(defense_options: list[dict]) -> dict[int, dict]:
             return
 
         if position == len(defense_options):
-            candidate_score = (assigned_count, round(total_score, 3))
+            candidate_score = (
+                assigned_count,
+                round(total_score, 3),
+            )
 
             if candidate_score > best_score:
                 best_score = candidate_score
@@ -550,6 +611,53 @@ def find_best_assignment(defense_options: list[dict]) -> dict[int, dict]:
     return best_assignment
 
 
+def select_search_options(valid_counters: list[dict]) -> list[dict]:
+    if len(valid_counters) <= MAX_COUNTER_OPTIONS_PER_DEFENSE:
+        return valid_counters
+
+    by_reliability = sorted(
+        valid_counters,
+        key=lambda row: (
+            safe_float(row.get("reliability_score"), 0.0),
+            safe_float(row.get("score"), 0.0),
+        ),
+        reverse=True,
+    )
+    by_value = sorted(
+        valid_counters,
+        key=lambda row: (
+            safe_float(row.get("score"), 0.0),
+            safe_float(row.get("reliability_score"), 0.0),
+        ),
+        reverse=True,
+    )
+
+    selected = []
+    seen_keys = set()
+
+    for counter in by_reliability[:MAX_COUNTER_OPTIONS_PER_DEFENSE]:
+        key = (counter.get("counter_leader", ""), tuple(counter.get("counter_units", [])))
+        if key not in seen_keys:
+            selected.append(counter)
+            seen_keys.add(key)
+
+    for counter in by_value[:MAX_COUNTER_OPTIONS_PER_DEFENSE]:
+        key = (counter.get("counter_leader", ""), tuple(counter.get("counter_units", [])))
+        if key not in seen_keys:
+            selected.append(counter)
+            seen_keys.add(key)
+
+    selected.sort(
+        key=lambda row: (
+            safe_float(row.get("reliability_score"), 0.0),
+            safe_float(row.get("score"), 0.0),
+        ),
+        reverse=True,
+    )
+
+    return selected
+
+
 def describe_overlap_reasons(
     leader: str,
     valid_counters: list[dict],
@@ -587,7 +695,8 @@ def print_strategy(strategy_df: pd.DataFrame, warnings: dict[str, list[str]]) ->
             print(
                 f"- {defense_label}: use {row.get('chosen_counter_leader', '')} "
                 f"{row.get('chosen_counter_units', [])} "
-                f"({row.get('win_percent', '')}% win, seen {row.get('seen', '')}, score {row.get('score', '')})"
+                f"({row.get('win_percent', '')}% win, seen {row.get('seen', '')}, "
+                f"cost {row.get('counter_cost', '')}, score {row.get('score', '')})"
             )
         else:
             print(f"- {defense_label}: {status} - {row.get('reason', '')}")
