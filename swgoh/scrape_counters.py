@@ -1,11 +1,32 @@
+import ast
 import asyncio
+import re
+from urllib.parse import parse_qs, urlparse
+
+import pandas as pd
+from bs4 import BeautifulSoup
 from pydoll.browser import Chrome
 from pydoll.browser.options import ChromiumOptions
-from bs4 import BeautifulSoup
-import ast
-import re
-import pandas as pd
-from urllib.parse import urlparse, parse_qs
+
+from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
+
+THREE_V_THREE_SEASON_ID = "CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
+CLOUDFLARE_WAIT_SECONDS = 120
+
+
+def is_cloudflare_challenge(html: str) -> bool:
+    clean_html = str(html or "").lower()
+
+    return any(
+        marker in clean_html
+        for marker in [
+            "verify you are human",
+            "checking if the site connection is secure",
+            "cf-turnstile",
+            "cf-chl",
+            "challenge-platform",
+        ]
+    )
 
 
 def extract_stats(text: str) -> dict:
@@ -73,13 +94,25 @@ def normalize_combat_type(value) -> str:
     return str(value).strip().lower()
 
 
+def parse_counter_soup(html: str) -> BeautifulSoup:
+    soup = BeautifulSoup(html, "lxml")
+
+    if (
+        "data-unit-def-tooltip-app" in html
+        and not soup.select_one("[data-unit-def-tooltip-app]")
+    ):
+        return BeautifulSoup(html, "html.parser")
+
+    return soup
+
+
 def looks_like_counter_row(div) -> bool:
     text = div.get_text(" ", strip=True)
     units = div.select("[data-unit-def-tooltip-app]")
 
     return (
         "Seen" in text
-        and "Win %" in text
+        and re.search(r"Win\s*%", text)
         and "Avg" in text
         and len(units) >= 1
     )
@@ -138,7 +171,7 @@ def split_units_around_stats(container) -> tuple[list[str], list[str]]:
 
 
 def parse_character_counter_page(html: str, url: str) -> pd.DataFrame:
-    soup = BeautifulSoup(html, "lxml")
+    soup = parse_counter_soup(html)
 
     parsed_url = urlparse(url)
     query = parse_qs(parsed_url.query)
@@ -198,7 +231,7 @@ def parse_character_counter_page(html: str, url: str) -> pd.DataFrame:
 
 
 def parse_ship_counter_page(html: str, url: str) -> pd.DataFrame:
-    soup = BeautifulSoup(html, "lxml")
+    soup = parse_counter_soup(html)
 
     parsed_url = urlparse(url)
     query = parse_qs(parsed_url.query)
@@ -217,7 +250,7 @@ def parse_ship_counter_page(html: str, url: str) -> pd.DataFrame:
 
             if (
                 "Seen" in text
-                and "Win %" in text
+                and re.search(r"Win\s*%", text)
                 and "Avg" in text
                 and len(extract_units(div)) >= 2
             ):
@@ -225,12 +258,12 @@ def parse_ship_counter_page(html: str, url: str) -> pd.DataFrame:
 
     print(f"Ship candidate rows found for {defense_leader}: {len(candidate_rows)}")
 
-    for index, panel in enumerate(candidate_rows, start=1):
+    for panel in candidate_rows:
         text = panel.get_text(" ", strip=True)
 
         if not (
             "Seen" in text
-            and "Win %" in text
+            and re.search(r"Win\s*%", text)
             and "Avg" in text
         ):
             continue
@@ -357,16 +390,60 @@ async def get_rendered_html(tab, url: str, wait_seconds: int = 2) -> str:
     raise RuntimeError("Could not get rendered HTML from this Pydoll tab.")
 
 
+async def get_rendered_html_with_human_check(
+    tab,
+    url: str,
+    wait_seconds: int = 2,
+    challenge_wait_seconds: int = CLOUDFLARE_WAIT_SECONDS,
+) -> str:
+    html = await get_rendered_html(tab, url, wait_seconds=wait_seconds)
+
+    if not is_cloudflare_challenge(html):
+        return html
+
+    print(
+        "\nCloudflare human check detected on counter page. "
+        "Solve the checkbox in the browser window; retrying until it clears."
+    )
+
+    for elapsed in range(0, challenge_wait_seconds, 5):
+        await asyncio.sleep(5)
+        html = await get_rendered_html(tab, url, wait_seconds=1)
+
+        if not is_cloudflare_challenge(html):
+            print("Cloudflare check cleared. Continuing counter scrape.")
+            return html
+
+        print(
+            "Still waiting on Cloudflare human check "
+            f"({elapsed + 5}/{challenge_wait_seconds}s)."
+        )
+
+    raise RuntimeError(
+        "Cloudflare human check did not clear before the wait timeout."
+    )
+
+
 async def fetch_character_counter_html(tab, url: str) -> str:
     """
     Try the fast request path first, then fall back to rendered DOM.
     """
     try:
         resp = await tab.request.get(url)
-        return resp.text
+        html = resp.text
+
+        if (
+            "Seen" in html
+            and "Win" in html
+            and "data-unit-def-tooltip-app" in html
+        ):
+            return html
+
+        print("Character request HTML did not contain counter rows. Falling back to rendered HTML.")
     except Exception as e:
         print(f"Character request failed, falling back to rendered HTML: {e}")
-        return await get_rendered_html(tab, url, wait_seconds=2)
+
+    return await get_rendered_html_with_human_check(tab, url, wait_seconds=4)
 
 
 async def scrape_character_counters(urls: list[str]) -> pd.DataFrame:
@@ -399,6 +476,14 @@ async def scrape_character_counters(urls: list[str]) -> pd.DataFrame:
                 continue
 
             df = parse_character_counter_page(html, url)
+
+            if df.empty and "season_id=" in url:
+                print("No character rows parsed from request/rendered fetch. Retrying with a longer rendered wait.")
+                try:
+                    html = await get_rendered_html_with_human_check(tab, url, wait_seconds=7)
+                    df = parse_character_counter_page(html, url)
+                except Exception as e:
+                    print(f"Long rendered retry failed for character counter page: {e}")
 
             if df.empty:
                 print("No character rows parsed.")
@@ -448,12 +533,20 @@ async def scrape_ship_counters(urls: list[str]) -> pd.DataFrame:
             print(f"\nScraping SHIP counter page: {url}")
 
             try:
-                html = await get_rendered_html(tab, url, wait_seconds=2)
+                html = await get_rendered_html_with_human_check(tab, url, wait_seconds=4)
             except Exception as e:
                 print(f"Could not fetch ship counter page: {e}")
                 continue
 
             df = parse_ship_counter_page(html, url)
+
+            if df.empty:
+                print("No ship rows parsed from first rendered fetch. Retrying with a longer rendered wait.")
+                try:
+                    html = await get_rendered_html_with_human_check(tab, url, wait_seconds=8)
+                    df = parse_ship_counter_page(html, url)
+                except Exception as e:
+                    print(f"Long rendered retry failed for ship counter page: {e}")
 
             if df.empty:
                 print("No ship rows parsed.")
@@ -494,7 +587,41 @@ async def scrape_all_counters(character_urls: list[str], ship_urls: list[str]) -
     return pd.concat(dfs, ignore_index=True)
 
 
-def build_counter_urls(defense_df: pd.DataFrame) -> tuple[list[str], list[str], dict[tuple[str, str], int]]:
+def normalize_gac_format(gac_format: str, defense_df: pd.DataFrame) -> str:
+    gac_format = str(gac_format or "all").strip().lower()
+
+    if gac_format in {"3v3", "5v5"}:
+        return gac_format
+
+    if "match_format" not in defense_df.columns:
+        return "all"
+
+    match_formats = {
+        str(value).strip().lower()
+        for value in defense_df["match_format"].dropna()
+        if str(value).strip().lower() in {"3v3", "5v5"}
+    }
+
+    if len(match_formats) == 1:
+        return next(iter(match_formats))
+
+    return "all"
+
+
+def build_character_counter_url(leader: str, gac_format: str) -> str:
+    base_url = f"https://swgoh.gg/gac/counters/{leader}/"
+
+    if gac_format == "3v3":
+        return f"{base_url}?season_id={THREE_V_THREE_SEASON_ID}"
+
+    return base_url
+
+
+def build_counter_urls(
+    defense_df: pd.DataFrame,
+    gac_format: str = "all",
+) -> tuple[list[str], list[str], dict[tuple[str, str], int]]:
+    gac_format = normalize_gac_format(gac_format, defense_df)
     character_urls = []
     ship_urls = []
     skipped_duplicate_counts = {}
@@ -522,7 +649,7 @@ def build_counter_urls(defense_df: pd.DataFrame) -> tuple[list[str], list[str], 
 
         if combat_type == "characters":
             character_urls.append(
-                f"https://swgoh.gg/gac/counters/{leader}/"
+                build_character_counter_url(leader, gac_format)
             )
         else:
             if combat_type != "ships":
@@ -564,7 +691,9 @@ def print_repeat_summary(repeat_counts: dict[tuple[str, str], int]) -> None:
 
 
 def main() -> None:
-    df = pd.read_csv("defense_teams.csv")
+    migrate_legacy_csvs()
+    ensure_data_dirs()
+    df = pd.read_csv(csv_path("defense_teams.csv"))
 
     character_urls, ship_urls, repeat_counts = build_counter_urls(df)
     print_repeat_summary(repeat_counts)
@@ -581,7 +710,7 @@ def main() -> None:
     print("\nFinal counter DataFrame:")
     print(counter_df)
 
-    counter_df.to_csv("counter_results.csv", index=False)
+    counter_df.to_csv(csv_path("counter_results.csv"), index=False)
 
 
 if __name__ == "__main__":

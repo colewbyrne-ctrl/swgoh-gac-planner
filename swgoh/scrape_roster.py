@@ -1,11 +1,11 @@
 import asyncio
-from pydoll.browser import Chrome
-from pydoll.browser.options import ChromiumOptions
-from bs4 import BeautifulSoup
-import pandas as pd
 import re
 from urllib.parse import urljoin
 
+import pandas as pd
+from bs4 import BeautifulSoup
+from pydoll.browser import Chrome
+from pydoll.browser.options import ChromiumOptions
 
 BASE_URL = "https://swgoh.gg"
 

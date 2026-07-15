@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Attack plan — SWGOH GAC Planner{% endblock %}
+{% macro units(list) %}<span class="units">{{ list | join(", ") if list else "—" }}</span>{% endmacro %}
+
+{% block body %}
+<h1>Attack plan</h1>
+<p class="subtitle">One counter assigned per enemy defense, no unit reused. Format:
+  <strong>{{ settings.gac_format }}</strong>.</p>
+
+<table class="plan">
+  <thead>
+    <tr>
+      <th>Enemy defense</th>
+      <th>Assigned counter</th>
+      <th>Win%</th>
+      <th>Seen</th>
+      <th>Score</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr class="status-{{ row.status }}">
+      <td>
+        <div class="leader">{{ row.defense_leader }}</div>
+        <div class="muted small">{{ units(row.defense_units) }}</div>
+      </td>
+      <td>
+        {% if row.chosen_counter_leader %}
+          <div class="leader">{{ row.chosen_counter_leader }}</div>
+          <div class="muted small">{{ units(row.chosen_counter_units) }}</div>
+        {% else %}
+          <span class="muted">No counter</span>
+        {% endif %}
+      </td>
+      <td>{{ row.win_percent }}</td>
+      <td>{{ row.seen }}</td>
+      <td>{{ row.score }}</td>
+      <td><span class="badge">{{ row.status }}</span></td>
+      <td class="actions">
+        {% if row.chosen_counter_leader %}
+        <form method="post" action="/reject">
+          <input type="hidden" name="combat_type" value="{{ row.combat_type }}">
+          <input type="hidden" name="defense_leader" value="{{ row.defense_leader }}">
+          <input type="hidden" name="defense_name" value="{{ row.defense_name }}">
+          <input type="hidden" name="counter_leader" value="{{ row.chosen_counter_leader }}">
+          <input type="hidden" name="counter_units" value="{{ row.counter_units_repr }}">
+          <button type="submit" class="danger">Reject</button>
+        </form>
+        <form method="post" action="/lock-matchup">
+          <input type="hidden" name="combat_type" value="{{ row.combat_type }}">
+          <input type="hidden" name="defense_leader" value="{{ row.defense_leader }}">
+          <input type="hidden" name="defense_name" value="{{ row.defense_name }}">
+          <input type="hidden" name="counter_leader" value="{{ row.chosen_counter_leader }}">
+          <input type="hidden" name="counter_units" value="{{ row.counter_units_repr }}">
+          <button type="submit">Lock</button>
+        </form>
+        <form method="post" action="/lock-offense-team">
+          <input type="hidden" name="counter_leader" value="{{ row.chosen_counter_leader }}">
+          <input type="hidden" name="counter_units" value="{{ row.counter_units_repr }}">
+          <input type="hidden" name="defense_leader" value="{{ row.defense_leader }}">
+          <input type="hidden" name="defense_name" value="{{ row.defense_name }}">
+          <button type="submit">Keep for offense</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">No plan yet. Run the pipeline from the Setup tab.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<section class="grid">
+  <div class="panel">
+    <h2>Reserve a unit</h2>
+    <p class="muted small">Keep a unit off offense entirely.</p>
+    <form method="post" action="/reserve" class="inline">
+      <input type="text" name="unit" placeholder="BASE_ID e.g. GRANDMASTERYODA" required>
+      <input type="text" name="reason" placeholder="reason (optional)">
+      <button type="submit">Reserve</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Add always-offense team</h2>
+    <p class="muted small">Excluded from defense planning.</p>
+    <form method="post" action="/manual-lock-offense-team" class="inline">
+      <input type="text" name="leader" placeholder="leader BASE_ID">
+      <input type="text" name="team_units" placeholder="LEADER, UNIT2, UNIT3">
+      <button type="submit">Add</button>
+    </form>
+  </div>
+</section>
+
+{% if warnings %}
+<section class="panel">
+  <h2>Warnings</h2>
+  {% for key, values in warnings.items() %}
+    <details>
+      <summary>{{ key.replace("_", " ") }} ({{ values | length }})</summary>
+      <ul>{% for v in values %}<li>{{ v }}</li>{% endfor %}</ul>
+    </details>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if rule_tables %}
+<section class="panel">
+  <h2>Saved rules</h2>
+  {% for key, label, rows in rule_tables %}
+    <h3>{{ label }}</h3>
+    <table class="rules">
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="small">
+            {% if r.counter_leader is defined %}{{ r.counter_leader }} vs {{ r.defense_leader }}{% endif %}
+            {% if r.unit is defined %}{{ r.unit }}{% endif %}
+            {% if r.leader is defined %}{{ r.leader }}{% endif %}
+            {% if r.reason %}<span class="muted"> — {{ r.reason }}</span>{% endif %}
+          </td>
+          <td>
+            <form method="post" action="/remove-rule">
+              <input type="hidden" name="rule_key" value="{{ key }}">
+              <input type="hidden" name="row_index" value="{{ r._row_index }}">
+              <button type="submit" class="danger small">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

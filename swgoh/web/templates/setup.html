@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Setup — SWGOH GAC Planner{% endblock %}
+
+{% block body %}
+<h1>Setup &amp; run</h1>
+
+<section class="panel">
+  <h2>Pipeline settings</h2>
+  <form method="post" action="/save-setup" class="stacked">
+    <label>Your player ID
+      <input type="text" name="my_player_id" value="{{ settings.my_player_id }}">
+    </label>
+    <label>Enemy player ID
+      <input type="text" name="enemy_player_id" value="{{ settings.enemy_player_id }}">
+    </label>
+    <label>History limit
+      <input type="number" name="history_limit" value="{{ settings.history_limit }}" min="1">
+    </label>
+    <label>GAC format
+      <select name="gac_format">
+        {% for opt in ["all", "3v3", "5v5"] %}
+          <option value="{{ opt }}" {{ 'selected' if settings.gac_format == opt else '' }}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save settings</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Run pipeline</h2>
+  <p class="muted small">Scrapes defenses, counters, and rosters, then rebuilds both plans.</p>
+  <form method="post" action="/start-pipeline">
+    <button type="submit" class="primary">Start pipeline</button>
+  </form>
+  <p class="status status-{{ status.state }}"><strong>{{ status.state }}</strong> — {{ status.detail }}</p>
+  {% if log_tail %}
+    <h3>Log</h3>
+    <pre class="log">{{ log_tail }}</pre>
+  {% endif %}
+</section>
+{% endblock %}

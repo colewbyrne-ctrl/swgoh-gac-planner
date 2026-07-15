@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SWGOH GAC Planner{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">SWGOH GAC Planner</div>
+    <nav>
+      <a href="/" class="{{ 'active' if active == 'attack' else '' }}">Attack</a>
+      <a href="/defense" class="{{ 'active' if active == 'defense' else '' }}">Defense</a>
+      <a href="/setup" class="{{ 'active' if active == 'setup' else '' }}">Setup</a>
+    </nav>
+  </header>
+
+  <main>
+    {% if message %}<div class="flash">{{ message }}</div>{% endif %}
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>
