@@ -6,8 +6,8 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 from bs4 import BeautifulSoup
 from pydoll.browser import Chrome
-from pydoll.browser.options import ChromiumOptions
 
+from .browser_setup import build_scraper_options
 from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
 
 THREE_V_THREE_SEASON_ID = "CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
@@ -454,9 +454,7 @@ async def scrape_character_counters(urls: list[str]) -> pd.DataFrame:
     if not urls:
         return pd.DataFrame()
 
-    options = ChromiumOptions()
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options = build_scraper_options()
 
     all_rows = []
 
@@ -516,9 +514,7 @@ async def scrape_ship_counters(urls: list[str]) -> pd.DataFrame:
     if not urls:
         return pd.DataFrame()
 
-    options = ChromiumOptions()
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options = build_scraper_options()
 
     all_rows = []
 
