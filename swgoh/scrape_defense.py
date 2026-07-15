@@ -5,8 +5,8 @@ from urllib.parse import urljoin
 import pandas as pd
 from bs4 import BeautifulSoup
 from pydoll.browser import Chrome
-from pydoll.browser.options import ChromiumOptions
 
+from .browser_setup import build_scraper_options
 from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
 
 BASE_URL = "https://swgoh.gg"
@@ -556,10 +556,7 @@ async def scrape_defense(
     if gac_format not in {"all", "3v3", "5v5"}:
         raise ValueError("gac_format must be one of: all, 3v3, 5v5")
 
-    options = ChromiumOptions()
-
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options = build_scraper_options()
 
     all_rows = []
 

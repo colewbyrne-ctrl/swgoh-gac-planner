@@ -5,7 +5,8 @@ from urllib.parse import urljoin
 import pandas as pd
 from bs4 import BeautifulSoup
 from pydoll.browser import Chrome
-from pydoll.browser.options import ChromiumOptions
+
+from .browser_setup import build_scraper_options
 
 BASE_URL = "https://swgoh.gg"
 
@@ -416,10 +417,7 @@ def debug_roster_page(html: str, url: str, combat_type: str) -> None:
 
 
 async def scrape_roster(player_id: str, debug: bool = True) -> pd.DataFrame:
-    options = ChromiumOptions()
-
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options = build_scraper_options()
 
     character_url = f"https://swgoh.gg/p/{player_id}/characters/"
     ship_url = f"https://swgoh.gg/p/{player_id}/ships/"

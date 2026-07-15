@@ -3,6 +3,11 @@ from pathlib import Path
 TEAM_LISTS_DIR = Path("team_lists")
 ACTIVE_RUN_DIR = Path("active_run")
 
+# Persistent Chrome profile shared by every scraper session. Reusing one profile
+# keeps the Cloudflare `cf_clearance` cookie between runs, so the challenge only
+# has to be solved once (until the cookie expires) instead of every session.
+BROWSER_PROFILE_DIR = Path(".browser_profiles") / "swgoh_scraper"
+
 TEAM_LIST_FILES = {
     "defense_team_library.csv",
     "defense_team_library_3v3.csv",
@@ -37,6 +42,12 @@ def csv_path(filename: str) -> str:
 def ensure_data_dirs() -> None:
     TEAM_LISTS_DIR.mkdir(exist_ok=True)
     ACTIVE_RUN_DIR.mkdir(exist_ok=True)
+
+
+def browser_profile_dir() -> str:
+    """Absolute path to the shared, persistent Chrome profile (created if needed)."""
+    BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    return str(BROWSER_PROFILE_DIR.resolve())
 
 
 def migrate_legacy_csvs() -> None:
