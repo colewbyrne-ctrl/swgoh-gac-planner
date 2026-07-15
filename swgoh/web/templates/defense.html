@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Defense — SWGOH GAC Planner{% endblock %}
+
+{% block body %}
+<h1>Defense candidates</h1>
+<p class="subtitle">Ranked teams you can still field from units not spent on offense.
+  Rows in the selected non-overlapping plan are highlighted.</p>
+
+<div class="toggle">
+  <a href="/defense?combat_type=characters" class="{{ 'active' if combat_type == 'characters' else '' }}">Characters</a>
+  <a href="/defense?combat_type=ships" class="{{ 'active' if combat_type == 'ships' else '' }}">Ships</a>
+</div>
+
+<table class="plan">
+  <thead>
+    <tr>
+      <th>Leader</th>
+      <th>Team</th>
+      <th>Strength</th>
+      <th>Times seen</th>
+      <th>Avg counter win%</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr class="{{ 'in-plan' if row.in_plan else '' }}">
+      <td>
+        <div class="leader">{{ row.leader }}</div>
+        {% if row.in_plan %}<span class="badge good">in plan</span>{% endif %}
+      </td>
+      <td class="units small">{{ row.team_units | join(", ") }}</td>
+      <td>{{ row.perceived_strength }}</td>
+      <td>{{ row.times_seen }}</td>
+      <td>{{ row.avg_counter_win_percent }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="muted">No fieldable {{ combat_type }} teams after offense exclusions.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

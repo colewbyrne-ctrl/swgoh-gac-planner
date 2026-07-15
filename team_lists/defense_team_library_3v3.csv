@@ -1,0 +1,39 @@
+combat_type,gac_format,leader,team_units,unit_count,times_seen,total_counter_seen,avg_counter_win_percent,source_notes
+characters,3v3,CC2224,"['CC2224', 'CAPTAINREX', 'KIX']",3,256,142915.0,64.76,"counter_results.csv, defense_teams.csv"
+characters,3v3,LORDVADER,"['LORDVADER', 'APPO', 'OPERATIVE']",3,225,308546.0,66.871,"counter_results.csv, defense_teams.csv"
+characters,3v3,CASSIANUNDERCOVER,"['CASSIANUNDERCOVER', 'CINTA', 'VEL']",3,200,105432.0,91.281,"counter_results.csv, defense_teams.csv"
+characters,3v3,QUEENAMIDALA,"['QUEENAMIDALA', 'MASTERQUIGON', 'PADAWANOBIWAN']",3,188,302615.0,72.135,"counter_results.csv, defense_teams.csv"
+characters,3v3,BAYLANSKOLL,"['BAYLANSKOLL', 'MARROK', 'SHINHATI']",3,188,287835.0,70.529,"counter_results.csv, defense_teams.csv"
+characters,3v3,GLLEIA,"['GLLEIA', 'CAPTAINDROGAN', 'R2D2_LEGENDARY']",3,173,106435.0,59.588,"counter_results.csv, defense_teams.csv"
+characters,3v3,EMPERORPALPATINE,"['EMPERORPALPATINE', 'MARAJADE', 'VADERDUELSEND']",3,172,173975.0,86.594,"counter_results.csv, defense_teams.csv"
+characters,3v3,THIRDSISTER,"['THIRDSISTER', 'GRANDINQUISITOR', 'SEVENTHSISTER']",3,168,199305.0,86.758,"counter_results.csv, defense_teams.csv"
+characters,3v3,GLHONDO,"['GLHONDO', 'CAPTAINSILVO', 'VANE']",3,165,325275.0,56.182,counter_results.csv
+characters,3v3,JABBATHEHUTT,"['JABBATHEHUTT', 'BOUSHH', 'KRRSANTAN']",3,130,272905.0,69.957,"counter_results.csv, defense_teams.csv"
+characters,3v3,OMEGAS3,"['OMEGAS3', 'CROSSHAIRS3', 'WRECKERS3']",3,123,16105.0,99.583,"counter_results.csv, defense_teams.csv"
+characters,3v3,STRANGER,"['STRANGER', 'MAULHATEFUELED', 'STARKILLER']",3,119,142455.0,48.364,"counter_results.csv, defense_teams.csv"
+characters,3v3,DARTHTRAYA,"['DARTHTRAYA', 'DARTHNIHILUS', 'SAVAGEOPRESS']",3,118,15040.0,96.783,"counter_results.csv, defense_teams.csv"
+ships,3v3,CAPITALEXECUTOR,"['CAPITALEXECUTOR', 'HOUNDSTOOTH', 'IG2000', 'PUNISHINGONE', 'RAZORCREST', 'SLAVE1', 'XANADUBLOOD']",7,105,79334.0,97.159,"counter_results.csv, defense_teams.csv"
+characters,3v3,GLAHSOKATANO,"['GLAHSOKATANO', 'EZRAEXILE', 'HUYANG']",3,93,130800.0,50.778,"counter_results.csv, defense_teams.csv"
+characters,3v3,COMMANDERLUKESKYWALKER,"['COMMANDERLUKESKYWALKER', 'C3POCHEWBACCA', 'C3POLEGENDARY']",3,88,12732.0,98.568,counter_results.csv
+characters,3v3,GREATMOTHERS,"['GREATMOTHERS', 'MORGANELSBETH', 'NIGHTSISTERSPIRIT']",3,83,63535.0,96.062,"counter_results.csv, defense_teams.csv"
+characters,3v3,CHIEFCHIRPA,"['CHIEFCHIRPA', 'PRINCESSKNEESAA', 'WICKET']",3,80,4354.0,100.0,"counter_results.csv, defense_teams.csv"
+characters,3v3,GLREY,"['GLREY', 'BENSOLO', 'CALKESTIS']",3,79,168686.0,76.6,"counter_results.csv, defense_teams.csv"
+characters,3v3,GEONOSIANBROODALPHA,"['GEONOSIANBROODALPHA', 'GEONOSIANSPY', 'POGGLETHELESSER']",3,72,3104.0,100.0,"counter_results.csv, defense_teams.csv"
+characters,3v3,MAJORPARTAGAZ,"['MAJORPARTAGAZ', 'DEDRAMEERO', 'KXSECURITYDROID']",3,62,19938.0,84.5,"counter_results.csv, defense_teams.csv"
+characters,3v3,JEDIMASTERKENOBI,"['JEDIMASTERKENOBI', 'COMMANDERAHSOKA', 'GENERALKENOBI']",3,54,19992.0,78.444,counter_results.csv
+characters,3v3,GRANDMOFFTARKIN,"['GRANDMOFFTARKIN', 'DISGUISEDCLONETROOPER', 'SCORCH']",3,49,64180.0,95.918,counter_results.csv
+characters,3v3,SUPREMELEADERKYLOREN,"['SUPREMELEADERKYLOREN', 'DARKREY', 'KYLORENUNMASKED']",3,46,7176.0,79.609,counter_results.csv
+characters,3v3,GENERALSKYWALKER,"['GENERALSKYWALKER', 'ARCTROOPER501ST', 'CT210408']",3,44,5162.0,97.409,counter_results.csv
+characters,3v3,GRIEVOUS,"['GRIEVOUS', 'B2SUPERBATTLEDROID', 'MAGNAGUARD']",3,36,2838.0,99.375,"counter_results.csv, defense_teams.csv"
+ships,3v3,CAPITALNEGOTIATOR,"['CAPITALNEGOTIATOR', 'ARC170REX', 'BLADEOFDORIN', 'JEDISTARFIGHTERAHSOKATANO', 'JEDISTARFIGHTERANAKIN', 'MARAUDER', 'UMBARANSTARFIGHTER', 'YWINGCLONEWARS']",8,34,22116.0,97.938,"counter_results.csv, defense_teams.csv"
+ships,3v3,CAPITALMONCALAMARICRUISER,"['CAPITALMONCALAMARICRUISER', 'BWINGREBEL', 'RAVENSCLAW', 'UWINGROGUEONE', 'UWINGSCARIF', 'XWINGRED2', 'XWINGRED3']",7,33,19489.0,90.0,counter_results.csv
+characters,3v3,QUIGONJINN,"['QUIGONJINN', 'ANAKINKNIGHT', 'MACEWINDU']",3,31,6000.0,97.421,"counter_results.csv, defense_teams.csv"
+characters,3v3,FIFTHBROTHER,"['FIFTHBROTHER', 'EIGHTHBROTHER', 'SECONDSISTER']",3,30,265.0,100.0,"counter_results.csv, defense_teams.csv"
+characters,3v3,HOTHLEIA,"['HOTHLEIA', 'ADMINISTRATORLANDO', 'HOTHHAN']",3,27,179.0,100.0,counter_results.csv
+characters,3v3,FENNECSHAND,"['FENNECSHAND', '4LOM', 'ASAJJDARKDISCIPLE']",3,16,57.0,100.0,counter_results.csv
+characters,3v3,DIRECTORKRENNIC,"['DIRECTORKRENNIC', 'SCOUTTROOPER_V3', 'STORMTROOPER']",3,12,0.0,,defense_teams.csv
+ships,3v3,CAPITALMONCALAMARICRUISER,"['CAPITALMONCALAMARICRUISER', 'BWINGREBEL', 'GHOST', 'MILLENNIUMFALCON', 'OUTRIDER', 'PHANTOM2', 'RAVENSCLAW', 'YWINGREBEL']",8,10,0.0,,defense_teams.csv
+characters,3v3,GRANDMOFFTARKIN,"['GRANDMOFFTARKIN', 'APPO', 'OPERATIVE', 'SCORCH', 'TIEFIGHTERPILOT']",5,2,0.0,,defense_teams.csv
+characters,3v3,QUIGONJINN,"['QUIGONJINN', 'AHSOKATANO', 'ANAKINKNIGHT', 'GRANDMASTERYODA', 'SHAAKTI']",5,2,0.0,,defense_teams.csv
+characters,3v3,BOSSK,"['BOSSK', 'BOBAFETT', 'BOUSHH', 'CADBANE', 'IG88']",5,2,0.0,,defense_teams.csv
+characters,3v3,AURRA_SING,"['AURRA_SING', 'GAMORREANGUARD', 'GREEDO', 'HUMANTHUG', 'KRRSANTAN']",5,2,0.0,,defense_teams.csv

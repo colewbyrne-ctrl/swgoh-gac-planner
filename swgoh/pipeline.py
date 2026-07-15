@@ -1,29 +1,34 @@
 import argparse
 import asyncio
 
-from scrape_defense import scrape_defense
-from scrape_counters import (
+from .make_strategy import (
+    build_roster_set,
+    choose_strategy,
+    dedupe_defenses_by_leader,
+    load_locked_matchup_signatures,
+    load_offense_team_lock_signatures,
+    load_rejected_counter_signatures,
+    load_reserved_units,
+    print_strategy,
+    save_strategy,
+)
+from .plan_my_defense import run_my_defense_planner
+from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
+from .scrape_counters import (
     add_leader_repeat_counts,
     build_counter_urls,
     print_repeat_summary,
     scrape_all_counters,
 )
-from scrape_roster import scrape_roster
-from make_strategy import (
-    build_roster_set,
-    choose_strategy,
-    dedupe_defenses_by_leader,
-    print_strategy,
-    save_strategy,
-)
+from .scrape_defense import scrape_defense
+from .scrape_roster import scrape_roster
 
-
-DEFENSE_FILE = "defense_teams.csv"
-COUNTERS_FILE = "counter_results.csv"
-MY_ROSTER_FILE = "roster_units.csv"
-ENEMY_ROSTER_FILE = "enemy_roster_units.csv"
+DEFENSE_FILE = csv_path("defense_teams.csv")
+COUNTERS_FILE = csv_path("counter_results.csv")
+MY_ROSTER_FILE = csv_path("roster_units.csv")
+ENEMY_ROSTER_FILE = csv_path("enemy_roster_units.csv")
 DEFAULT_MY_PLAYER_ID = "848865876"
-DEFAULT_ENEMY_PLAYER_ID = "721192678"
+DEFAULT_ENEMY_PLAYER_ID = "946418649"
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,7 +55,17 @@ def parse_args() -> argparse.Namespace:
         "--history-limit",
         type=int,
         default=3,
-        help="Number of enemy GAC history links to inspect.",
+        help="Number of matching enemy GAC history matches to scrape.",
+    )
+    parser.add_argument(
+        "--gac-format",
+        choices=["all", "3v3", "5v5"],
+        default="all",
+        help=(
+            "Which GAC format to scrape. If set to 3v3 or 5v5, the scraper "
+            "skips intervening matches of the other format until it finds "
+            "history-limit matching matches."
+        ),
     )
     parser.add_argument(
         "--debug-roster",
@@ -62,6 +77,8 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run_pipeline(args: argparse.Namespace) -> None:
+    migrate_legacy_csvs()
+    ensure_data_dirs()
     enemy_history_url = f"https://swgoh.gg/p/{args.enemy_player_id}/gac-history/"
 
     print("\n=== 1. Scraping enemy defenses ===")
@@ -69,12 +86,16 @@ async def run_pipeline(args: argparse.Namespace) -> None:
         enemy_history_url,
         player_id=args.enemy_player_id,
         history_limit=args.history_limit,
+        gac_format=args.gac_format,
     )
     defense_df.to_csv(DEFENSE_FILE, index=False)
     print(f"Saved {len(defense_df)} defense rows to {DEFENSE_FILE}")
 
     print("\n=== 2. Scraping counters ===")
-    character_urls, ship_urls, repeat_counts = build_counter_urls(defense_df)
+    character_urls, ship_urls, repeat_counts = build_counter_urls(
+        defense_df,
+        gac_format=args.gac_format,
+    )
     print_repeat_summary(repeat_counts)
 
     counter_df = await scrape_all_counters(
@@ -104,17 +125,29 @@ async def run_pipeline(args: argparse.Namespace) -> None:
     print("\n=== 5. Building strategy plan ===")
     strategy_defense_df, duplicate_warnings = dedupe_defenses_by_leader(defense_df)
     roster_set, roster_by_unit = build_roster_set(my_roster_df)
-
     strategy_df, warnings = choose_strategy(
         strategy_defense_df,
         counter_df,
         roster_set,
         roster_by_unit,
+        rejected_counters=load_rejected_counter_signatures(),
+        reserved_units=load_reserved_units(),
+        locked_matchups=load_locked_matchup_signatures(),
+        offense_team_locks=load_offense_team_lock_signatures(gac_format=args.gac_format),
     )
     warnings["duplicate_defenses"].extend(duplicate_warnings)
 
     save_strategy(strategy_df)
     print_strategy(strategy_df, warnings)
+
+    print("\n=== 6. Planning your defensive teams from unused roster ===")
+    run_my_defense_planner(
+        my_roster_df,
+        strategy_df,
+        defense_df,
+        counter_df,
+        gac_format=args.gac_format,
+    )
 
 
 def main() -> None:

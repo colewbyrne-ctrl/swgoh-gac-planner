@@ -1,0 +1,10 @@
+defense_name,defense_leader,combat_type,defense_units,chosen_counter_leader,chosen_counter_units,win_percent,seen,avg_banners,counter_cost,score,status,reason
+Leia Organa,GLLEIA,characters,"['GLLEIA', 'R2D2_LEGENDARY', 'CAPTAINDROGAN', 'KYLEKATARN', 'CARADUNE']",DARTHBANE,"['DARTHBANE', 'DARTHREVAN']",85.0,593,47.03,18.43,71.513,assigned,reliable counter found
+Grand Moff Tarkin,GRANDMOFFTARKIN,characters,"['GRANDMOFFTARKIN', 'TIEFIGHTERPILOT', 'APPO', 'OPERATIVE', 'SCORCH']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Qui-Gon Jinn,QUIGONJINN,characters,"['QUIGONJINN', 'AHSOKATANO', 'ANAKINKNIGHT', 'GRANDMASTERYODA', 'SHAAKTI']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Geonosian Brood Alpha,GEONOSIANBROODALPHA,characters,"['GEONOSIANBROODALPHA', 'GEONOSIANSPY', 'SUNFAC', 'POGGLETHELESSER', 'GEONOSIANSOLDIER']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Bossk,BOSSK,characters,"['BOSSK', 'BOBAFETT', 'BOUSHH', 'IG88', 'CADBANE']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Rebel Officer Leia Organa,HOTHLEIA,characters,"['HOTHLEIA', 'ADMINISTRATORLANDO', 'PRINCESSLEIA', 'STORMTROOPERHAN', 'HOTHHAN']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Aurra Sing,AURRA_SING,characters,"['AURRA_SING', 'GREEDO', 'KRRSANTAN', 'GAMORREANGUARD', 'HUMANTHUG']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Executor,CAPITALEXECUTOR,ships,"['CAPITALEXECUTOR', 'RAZORCREST', 'PUNISHINGONE', 'HOUNDSTOOTH', 'XANADUBLOOD', 'SLAVE1', 'IG2000']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"
+Home One,CAPITALMONCALAMARICRUISER,ships,"['CAPITALMONCALAMARICRUISER', 'RAVENSCLAW', 'YWINGREBEL', 'GHOST', 'BWINGREBEL', 'OUTRIDER', 'MILLENNIUMFALCON', 'PHANTOM2']",,[],,,,,,no_valid_counter,"no counter met win, seen, and roster requirements"

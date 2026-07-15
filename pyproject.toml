@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swgoh-gac-planner"
+version = "0.1.0"
+description = "Scrapes SWGOH.GG Grand Arena data and solves a constrained counter-assignment problem to build offense and defense plans."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Cole Byrne" }]
+dependencies = [
+    "pandas>=2.0",
+    "beautifulsoup4>=4.12",
+    "pydoll-python>=2.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "mypy>=1.9",
+    "pandas-stubs",
+]
+
+[project.scripts]
+swgoh-pipeline = "swgoh.pipeline:main"
+swgoh-strategy = "swgoh.make_strategy:main"
+swgoh-defense = "swgoh.plan_my_defense:main"
+swgoh-web = "swgoh.web.app:main"
+
+[tool.setuptools]
+packages = ["swgoh", "swgoh.web"]
+
+[tool.setuptools.package-data]
+"swgoh.web" = ["templates/*.html", "static/*.css"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
