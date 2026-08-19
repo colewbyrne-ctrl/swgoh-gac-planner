@@ -16,6 +16,7 @@ TEAM_LIST_FILES = {
     "strategy_rejections.csv",
     "reserved_units.csv",
     "locked_matchups.csv",
+    "leader_exemptions.csv",
 }
 
 ACTIVE_RUN_FILES = {

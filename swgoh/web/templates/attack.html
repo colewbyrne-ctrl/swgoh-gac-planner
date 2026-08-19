@@ -7,6 +7,16 @@
 <p class="subtitle">One counter assigned per enemy defense, no unit reused. Format:
   <strong>{{ settings.gac_format }}</strong>.</p>
 
+<div class="actions page-actions">
+  <form method="post" action="/email-plan">
+    <button type="submit" class="primary" {{ '' if email_configured else 'disabled' }}>Email me this plan</button>
+  </form>
+  {% if not email_configured %}
+    <span class="muted small">Add your Gmail address and app password on the
+      <a href="/setup">Setup tab</a> to enable this.</span>
+  {% endif %}
+</div>
+
 <table class="plan">
   <thead>
     <tr>
@@ -39,6 +49,10 @@
       <td>{{ row.score }}</td>
       <td><span class="badge">{{ row.status }}</span></td>
       <td class="actions">
+        <button type="button" class="assign-button"
+                data-combat-type="{{ row.combat_type }}"
+                data-defense-leader="{{ row.defense_leader }}"
+                data-defense-name="{{ row.defense_name }}">Assign</button>
         {% if row.chosen_counter_leader %}
         <form method="post" action="/reject">
           <input type="hidden" name="combat_type" value="{{ row.combat_type }}">
@@ -80,6 +94,16 @@
       <input type="text" name="unit" placeholder="BASE_ID e.g. GRANDMASTERYODA" required>
       <input type="text" name="reason" placeholder="reason (optional)">
       <button type="submit">Reserve</button>
+    </form>
+  </div>
+  <div class="panel">
+    <h2>Exempt a leader</h2>
+    <p class="muted small">Teams led by this unit show up even when support characters
+      are below relic {{ min_relic }}. Every unit must still be on your roster.</p>
+    <form method="post" action="/exempt-leader" class="inline">
+      <input type="text" name="leader" placeholder="BASE_ID e.g. GLLEIA" required>
+      <input type="text" name="reason" placeholder="reason (optional)">
+      <button type="submit">Exempt</button>
     </form>
   </div>
   <div class="panel">
@@ -134,4 +158,27 @@
   {% endfor %}
 </section>
 {% endif %}
+
+<div class="modal-backdrop" id="assign-modal" hidden>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="assign-title">
+    <h2 id="assign-title">Assign a counter</h2>
+    <p class="muted small" id="assign-subtitle"></p>
+    <input type="text" id="assign-search" placeholder="Type to filter leaders or units"
+           autocomplete="off">
+    <div class="option-list" id="assign-options"></div>
+    <div class="actions">
+      <button type="button" id="assign-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="/assign-counter" id="assign-form" hidden>
+  <input type="hidden" name="combat_type">
+  <input type="hidden" name="defense_leader">
+  <input type="hidden" name="defense_name">
+  <input type="hidden" name="counter_leader">
+  <input type="hidden" name="counter_units">
+</form>
+
+<script src="/static/attack.js" defer></script>
 {% endblock %}

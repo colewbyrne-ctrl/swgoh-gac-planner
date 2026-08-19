@@ -5,6 +5,7 @@ from .make_strategy import (
     build_roster_set,
     choose_strategy,
     dedupe_defenses_by_leader,
+    load_leader_exemptions,
     load_locked_matchup_signatures,
     load_offense_team_lock_signatures,
     load_rejected_counter_signatures,
@@ -15,6 +16,7 @@ from .make_strategy import (
 from .plan_my_defense import run_my_defense_planner
 from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
 from .scrape_counters import (
+    SEASON_ID_HELP,
     add_leader_repeat_counts,
     build_counter_urls,
     print_repeat_summary,
@@ -68,6 +70,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--season-id",
+        default="",
+        help=SEASON_ID_HELP,
+    )
+    parser.add_argument(
         "--debug-roster",
         action="store_true",
         help="Print detailed roster page debug output while scraping rosters.",
@@ -95,6 +102,7 @@ async def run_pipeline(args: argparse.Namespace) -> None:
     character_urls, ship_urls, repeat_counts = build_counter_urls(
         defense_df,
         gac_format=args.gac_format,
+        season_id=getattr(args, "season_id", ""),
     )
     print_repeat_summary(repeat_counts)
 
@@ -132,6 +140,7 @@ async def run_pipeline(args: argparse.Namespace) -> None:
         roster_by_unit,
         rejected_counters=load_rejected_counter_signatures(),
         reserved_units=load_reserved_units(),
+        exempt_leaders=load_leader_exemptions(),
         locked_matchups=load_locked_matchup_signatures(),
         offense_team_locks=load_offense_team_lock_signatures(gac_format=args.gac_format),
     )

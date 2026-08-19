@@ -23,20 +23,68 @@
         {% endfor %}
       </select>
     </label>
+    <label>Counter season (optional)
+      <input type="text" name="counter_season_id" value="{{ settings.counter_season_id }}"
+             placeholder="blank = most recent season">
+      <span class="muted small">Paste a counters URL, a season id, or just the season number to scrape an older page.</span>
+    </label>
     <button type="submit">Save settings</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Email</h2>
+  <p class="muted small">Sends the attack plan to yourself over Gmail SMTP. Gmail blocks
+    account passwords, so use a 16-character
+    <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">app password</a>
+    (needs 2-Step Verification on the account).</p>
+  <form method="post" action="/save-email" class="stacked">
+    <label>Gmail address
+      <input type="email" name="gmail_address" value="{{ email_settings.gmail_address }}"
+             placeholder="you@gmail.com" autocomplete="username">
+    </label>
+    <label>App password
+      <input type="password" name="app_password" autocomplete="new-password"
+             placeholder="{{ 'saved — leave blank to keep' if email_settings.app_password else 'xxxx xxxx xxxx xxxx' }}">
+    </label>
+    <label>Send to (optional)
+      <input type="email" name="recipient" value="{{ email_settings.recipient }}"
+             placeholder="blank = send to yourself">
+    </label>
+    <button type="submit">Save email settings</button>
   </form>
 </section>
 
 <section class="panel">
   <h2>Run pipeline</h2>
   <p class="muted small">Scrapes defenses, counters, and rosters, then rebuilds both plans.</p>
-  <form method="post" action="/start-pipeline">
-    <button type="submit" class="primary">Start pipeline</button>
-  </form>
-  <p class="status status-{{ status.state }}"><strong>{{ status.state }}</strong> — {{ status.detail }}</p>
-  {% if log_tail %}
-    <h3>Log</h3>
-    <pre class="log">{{ log_tail }}</pre>
-  {% endif %}
+  <div class="actions">
+    <form method="post" action="/start-pipeline">
+      <button type="submit" class="primary" id="start-button"
+              {{ 'disabled' if status.state == 'running' else '' }}>Start pipeline</button>
+    </form>
+    <form method="post" action="/stop-pipeline"
+          onsubmit="return confirm('Cancel the running pipeline? Any scraping in progress is lost.');">
+      <button type="submit" class="danger" id="cancel-button"
+              {{ '' if status.state == 'running' else 'disabled' }}>Cancel pipeline</button>
+    </form>
+  </div>
+  <p class="status status-{{ status.state }}" id="pipeline-status"
+     data-state="{{ status.state }}"><strong>{{ status.state }}</strong> — {{ status.detail }}</p>
+  <h3 id="log-heading" {{ '' if log_tail else 'hidden' }}>Log</h3>
+  <pre class="log" id="log-tail" {{ '' if log_tail else 'hidden' }}>{{ log_tail }}</pre>
 </section>
+
+<div class="modal-backdrop" id="finish-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="finish-title">
+    <h2 id="finish-title">Pipeline finished</h2>
+    <p id="finish-detail" class="muted"></p>
+    <div class="actions">
+      <button type="button" class="primary" id="finish-reload">Reload page</button>
+      <button type="button" id="finish-dismiss">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/setup.js" defer></script>
 {% endblock %}

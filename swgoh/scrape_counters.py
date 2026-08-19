@@ -1,3 +1,4 @@
+import argparse
 import ast
 import asyncio
 import re
@@ -10,8 +11,18 @@ from pydoll.browser import Chrome
 from .browser_setup import build_scraper_options
 from .project_paths import csv_path, ensure_data_dirs, migrate_legacy_csvs
 
-THREE_V_THREE_SEASON_ID = "CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
+SEASON_ID_PREFIX = "CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_"
+THREE_V_THREE_SEASON_ID = f"{SEASON_ID_PREFIX}81"
+SHIP_SEASON_ID = f"{SEASON_ID_PREFIX}79"
 CLOUDFLARE_WAIT_SECONDS = 120
+
+SEASON_ID_HELP = (
+    "Which counter page to scrape. Accepts a full swgoh.gg counters URL, a "
+    f"season id like {SEASON_ID_PREFIX}80, or just the season number (80). "
+    "Leave blank to use the site default page (most recent season for "
+    f"characters, {SHIP_SEASON_ID} for ships)."
+)
+
 
 
 def is_cloudflare_challenge(html: str) -> bool:
@@ -604,20 +615,68 @@ def normalize_gac_format(gac_format: str, defense_df: pd.DataFrame) -> str:
     return "all"
 
 
-def build_character_counter_url(leader: str, gac_format: str) -> str:
+def normalize_season_id(season_id) -> str | None:
+    """
+    Turn a user supplied season into a swgoh.gg ``season_id`` query value.
+
+    Blank / None means "use the site default page", which is the most recent
+    season for characters. Accepts a full counter URL, a bare season id, or
+    just the season number.
+    """
+    if season_id is None:
+        return None
+
+    text = str(season_id).strip()
+
+    if not text:
+        return None
+
+    if "://" in text or text.startswith("swgoh.gg"):
+        query = parse_qs(urlparse(text if "://" in text else f"https://{text}").query)
+        found = query.get("season_id", [""])[0].strip()
+
+        return found or None
+
+    if text.isdigit():
+        return f"{SEASON_ID_PREFIX}{text}"
+
+    return text
+
+
+def build_character_counter_url(
+    leader: str,
+    gac_format: str,
+    season_id: str | None = None,
+) -> str:
     base_url = f"https://swgoh.gg/gac/counters/{leader}/"
 
-    if gac_format == "3v3":
-        return f"{base_url}?season_id={THREE_V_THREE_SEASON_ID}"
+    season_id = normalize_season_id(season_id)
+
+    if season_id is None and gac_format == "3v3":
+        season_id = THREE_V_THREE_SEASON_ID
+
+    if season_id:
+        return f"{base_url}?season_id={season_id}"
 
     return base_url
+
+
+def build_ship_counter_url(leader: str, season_id: str | None = None) -> str:
+    season_id = normalize_season_id(season_id) or SHIP_SEASON_ID
+
+    return f"https://swgoh.gg/gac/ship-counters/{leader}/?season_id={season_id}"
 
 
 def build_counter_urls(
     defense_df: pd.DataFrame,
     gac_format: str = "all",
+    season_id: str | None = None,
 ) -> tuple[list[str], list[str], dict[tuple[str, str], int]]:
     gac_format = normalize_gac_format(gac_format, defense_df)
+    season_id = normalize_season_id(season_id)
+
+    if season_id:
+        print(f"Using season_id override for counter pages: {season_id}")
     character_urls = []
     ship_urls = []
     skipped_duplicate_counts = {}
@@ -645,15 +704,13 @@ def build_counter_urls(
 
         if combat_type == "characters":
             character_urls.append(
-                build_character_counter_url(leader, gac_format)
+                build_character_counter_url(leader, gac_format, season_id)
             )
         else:
             if combat_type != "ships":
                 print(f"Unknown combat_type for row {index}: {row['combat_type']}. Treating as ships.")
 
-            ship_urls.append(
-                f"https://swgoh.gg/gac/ship-counters/{leader}/?season_id=CHAMPIONSHIPS_GRAND_ARENA_GA2_EVENT_SEASON_79"
-            )
+            ship_urls.append(build_ship_counter_url(leader, season_id))
 
     return character_urls, ship_urls, skipped_duplicate_counts
 
@@ -686,12 +743,37 @@ def print_repeat_summary(repeat_counts: dict[tuple[str, str], int]) -> None:
         print(f"- {combat_type} {leader}: {repeat_count} duplicate team repeat(s)")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Scrape swgoh.gg counter pages for each defense leader."
+    )
+    parser.add_argument(
+        "--gac-format",
+        choices=["all", "3v3", "5v5"],
+        default="all",
+        help="Which GAC format the defenses came from.",
+    )
+    parser.add_argument(
+        "--season-id",
+        default="",
+        help=SEASON_ID_HELP,
+    )
+
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+
     migrate_legacy_csvs()
     ensure_data_dirs()
     df = pd.read_csv(csv_path("defense_teams.csv"))
 
-    character_urls, ship_urls, repeat_counts = build_counter_urls(df)
+    character_urls, ship_urls, repeat_counts = build_counter_urls(
+        df,
+        gac_format=args.gac_format,
+        season_id=args.season_id,
+    )
     print_repeat_summary(repeat_counts)
 
     counter_df = asyncio.run(

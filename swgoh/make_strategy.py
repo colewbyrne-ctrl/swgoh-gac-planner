@@ -13,6 +13,7 @@ OUTPUT_FILE = csv_path("strategy_plan.csv")
 REJECTIONS_FILE = csv_path("strategy_rejections.csv")
 RESERVED_UNITS_FILE = csv_path("reserved_units.csv")
 LOCKED_MATCHUPS_FILE = csv_path("locked_matchups.csv")
+LEADER_EXEMPTIONS_FILE = csv_path("leader_exemptions.csv")
 OFFENSE_TEAM_LOCKS_FILE = csv_path("offense_team_locks.csv")
 THREE_V_THREE_OFFENSE_TEAM_LOCKS_FILE = csv_path("offense_team_locks_3v3.csv")
 
@@ -30,6 +31,12 @@ OFFENSE_LOCK_SCORE_BONUS = 15.0
 FLEXIBILITY_SCORE_PENALTY = 3.0
 BEAM_SEARCH_WIDTH = 1500
 SCARCE_DEFENSE_ASSIGNMENT_BONUS = 50.0
+# Roughly the cost a character carries at the relic minimum, so a unit let
+# through underbuilt is priced as if it just cleared the bar instead of looking
+# free. A unit missing from the roster costs nothing at all in unit_cost, so it
+# is charged the most.
+UNDERBUILT_UNIT_SCORE_PENALTY = MIN_CHARACTER_RELIC_LEVEL * 0.7
+MISSING_UNIT_SCORE_PENALTY = 4.0
 
 
 def counter_signature(
@@ -157,6 +164,28 @@ def load_reserved_units(path: str = RESERVED_UNITS_FILE) -> set[str]:
     }
 
 
+def load_leader_exemptions(path: str = LEADER_EXEMPTIONS_FILE) -> set[str]:
+    """Counter leaders whose teams skip the build-quality check.
+
+    A team led by an exempt unit is allowed even when support characters sit
+    below the relic minimum: the leader is assumed to carry the fight. Every
+    unit must still be owned -- a team you cannot field is no use as a plan.
+    """
+    if not Path(path).exists():
+        return set()
+
+    exemptions_df = pd.read_csv(path)
+
+    if "leader" not in exemptions_df.columns:
+        return set()
+
+    return {
+        str(leader).strip()
+        for leader in exemptions_df["leader"].fillna("")
+        if str(leader).strip()
+    }
+
+
 def offense_team_signature(
     leader: str,
     team_units: list[str],
@@ -252,11 +281,24 @@ def build_roster_set(roster_df: pd.DataFrame) -> tuple[set[str], dict[str, pd.Se
     return roster_set, roster_by_unit
 
 
+def _is_underbuilt(unit: str, combat_type: str, roster_by_unit: dict[str, pd.Series]) -> bool:
+    if combat_type != "characters":
+        return False
+
+    roster_row = roster_by_unit.get(unit)
+    relic_level = safe_float(
+        roster_row.get("relic_level") if roster_row is not None else None,
+        0.0,
+    )
+    return relic_level < MIN_CHARACTER_RELIC_LEVEL
+
+
 def roster_has_units(
     units: list[str],
     combat_type: str,
     roster_set: set[str],
     roster_by_unit: dict[str, pd.Series],
+    waive_build_quality: bool = False,
 ) -> tuple[bool, list[str], list[str], str]:
     missing_units = []
     underbuilt_units = []
@@ -266,13 +308,12 @@ def roster_has_units(
             missing_units.append(unit)
             continue
 
-        roster_row = roster_by_unit.get(unit)
-        relic_level = safe_float(
-            roster_row.get("relic_level") if roster_row is not None else None,
-            0.0,
-        )
-
-        if combat_type == "characters" and relic_level < MIN_CHARACTER_RELIC_LEVEL:
+        if _is_underbuilt(unit, combat_type, roster_by_unit):
+            roster_row = roster_by_unit.get(unit)
+            relic_level = safe_float(
+                roster_row.get("relic_level") if roster_row is not None else None,
+                0.0,
+            )
             underbuilt_units.append(f"{unit} (relic {relic_level:g})")
 
     if not units:
@@ -283,15 +324,24 @@ def roster_has_units(
     if counter_leader in missing_units:
         return False, missing_units, underbuilt_units, "counter leader is missing from roster"
 
-    if missing_units:
-        return False, missing_units, underbuilt_units, "one or more counter units are missing from roster"
+    # A leader exemption waives build quality only. Ownership is not negotiable:
+    # a team with an absent unit still spends from the tolerance below.
+    if waive_build_quality and underbuilt_units and not missing_units:
+        return (
+            True,
+            missing_units,
+            underbuilt_units,
+            f"leader exemption: allowing underbuilt {underbuilt_units}",
+        )
 
-    if underbuilt_units:
+    # Tolerance below is for support slots. The leader is the carry, so an
+    # underbuilt one sinks the team no matter how good the rest is.
+    if _is_underbuilt(counter_leader, combat_type, roster_by_unit):
         return (
             False,
             missing_units,
             underbuilt_units,
-            f"one or more character units are below relic {MIN_CHARACTER_RELIC_LEVEL}",
+            f"counter leader is below relic {MIN_CHARACTER_RELIC_LEVEL}",
         )
 
     issue_count = len(missing_units) + len(underbuilt_units)
@@ -467,6 +517,7 @@ def find_valid_counters_for_defense(
     rejected_counters: set[tuple[str, str, str, tuple[str, ...]]] | None = None,
     reserved_units: set[str] | None = None,
     offense_team_locks: set[tuple[str, tuple[str, ...]]] | None = None,
+    exempt_leaders: set[str] | None = None,
 ) -> list[dict]:
     combat_type = str(defense.get("combat_type", ""))
     leader = str(defense.get("leader", ""))
@@ -474,6 +525,7 @@ def find_valid_counters_for_defense(
     rejected_counters = rejected_counters or set()
     reserved_units = reserved_units or set()
     offense_team_locks = offense_team_locks or set()
+    exempt_leaders = exempt_leaders or set()
 
     required_columns = {"combat_type", "defense_leader", "counter_units", "seen", "win_percent"}
     if not required_columns.issubset(counters_df.columns):
@@ -536,6 +588,7 @@ def find_valid_counters_for_defense(
                 combat_type,
                 roster_set,
                 roster_by_unit,
+                waive_build_quality=counter_leader in exempt_leaders,
             )
 
             if not has_units:
@@ -564,6 +617,12 @@ def find_valid_counters_for_defense(
 
             if offense_locked:
                 score += OFFENSE_LOCK_SCORE_BONUS
+
+            # Score subtracts roster cost, so a team carrying an unfinished or
+            # absent unit looks cheap and would otherwise outrank a fully built
+            # one. Charge for every slot that only passed on tolerance.
+            score -= UNDERBUILT_UNIT_SCORE_PENALTY * len(underbuilt_units)
+            score -= MISSING_UNIT_SCORE_PENALTY * len(missing_units)
 
             fallback_penalty = relaxed_threshold_score_penalty(
                 min_seen,
@@ -793,9 +852,11 @@ def choose_strategy(
     reserved_units: set[str] | None = None,
     locked_matchups: set[tuple[str, str, str, tuple[str, ...]]] | None = None,
     offense_team_locks: set[tuple[str, tuple[str, ...]]] | None = None,
+    exempt_leaders: set[str] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, list[str]]]:
     locked_matchups = locked_matchups or set()
     offense_team_locks = offense_team_locks or set()
+    exempt_leaders = exempt_leaders or set()
     warnings = {
         "no_valid_counter": [],
         "missing_roster": [],
@@ -822,6 +883,7 @@ def choose_strategy(
             rejected_counters=rejected_counters,
             reserved_units=reserved_units,
             offense_team_locks=offense_team_locks,
+            exempt_leaders=exempt_leaders,
         )
         locked_counter = find_locked_counter_for_defense(defense, valid_counters, locked_matchups)
 
@@ -1265,6 +1327,7 @@ def main() -> None:
         roster_by_unit,
         rejected_counters=load_rejected_counter_signatures(),
         reserved_units=load_reserved_units(),
+        exempt_leaders=load_leader_exemptions(),
         locked_matchups=load_locked_matchup_signatures(),
         offense_team_locks=load_offense_team_lock_signatures(gac_format=gac_format),
     )

@@ -79,6 +79,24 @@ tr.in-plan { background: rgba(63, 185, 104, 0.08); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .actions form { margin: 0; }
+.page-actions { align-items: center; gap: 0.6rem; margin: 0 0 1rem; }
+
+.modal.wide { max-width: 34rem; width: 100%; }
+#assign-search { width: 100%; margin-bottom: 0.6rem; }
+.option-list { max-height: 22rem; overflow-y: auto; margin-bottom: 0.8rem; }
+.option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: 1px solid #e2e2e2;
+  border-radius: 0;
+  padding: 0.5rem 0.4rem;
+  cursor: pointer;
+}
+.option:hover, .option:focus { background: #f2f6ff; border-color: #b9d0ff; }
+.option-current { background: #f4fbf4; }
 
 button {
   font: inherit;
@@ -134,6 +152,37 @@ details ul { margin: 0.3rem 0 0.8rem; }
 .status-running { color: var(--accent); }
 .status-complete { color: var(--good); }
 .status-failed { color: var(--danger); }
+.status-cancelled { color: var(--muted); }
+.status-idle { color: var(--muted); }
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 9, 16, 0.72);
+}
+.modal-backdrop[hidden] { display: none; }
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.2rem 1.4rem;
+  max-width: 30rem;
+  width: 100%;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.modal h2 { margin-bottom: 0.4rem; }
+.modal p { margin-top: 0; }
 .log {
   background: #0a0e17;
   border: 1px solid var(--border);

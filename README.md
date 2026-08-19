@@ -117,6 +117,7 @@ python -m swgoh.pipeline --my-player-id 848865876 --enemy-player-id 721192678 --
 | `--enemy-player-id` | Opponent's player ID (their GAC history is scraped) |
 | `--history-limit` | How many recent matching GAC matches to scrape |
 | `--gac-format` | `all`, `3v3`, or `5v5` (skips the other format when set) |
+| `--season-id` | Which counter page to scrape. Blank (default) uses the site's default page — the most recent season. Accepts a full counters URL, a season id, or just the season number (`80`) |
 | `--debug-roster` | Extra roster-scraping detail |
 
 Rebuild just the attack plan after editing rule files (rejections, locks):
@@ -137,20 +138,52 @@ If installed with `pip install -e .`, the console scripts `swgoh-pipeline`,
 ## Review UI
 
 ```powershell
-swgoh-web                      # or: uvicorn swgoh.web.app:app --port 8787
+swgoh-web                                          # console script
+.venv\Scripts\python.exe -m uvicorn swgoh.web.app:app --port 8787   # without activating the venv
 ```
 
 Then open <http://127.0.0.1:8787/>. The UI lets you:
 
-- Run the scrape-and-plan pipeline from the browser and watch its log.
+- Run the scrape-and-plan pipeline from the browser, watch its log update live,
+  and cancel a run in progress. A popup announces the result when it finishes.
 - **Reject** a counter that's wrong for your roster and recalculate.
 - **Lock** a matchup you trust so the optimizer must keep it.
+- **Assign** a counter by hand: a searchable popup lists every counter that's
+  legal for that defense, filtered as you type. Picking a team already spent on
+  another defense frees it there and replans that one.
 - **Reserve** individual units so they're never spent on offense.
+Counters are gated on whether your roster can field them. One weak *support*
+slot is tolerated — a single character below the relic minimum, or a single unit
+you don't own — and the plan's reason column says so (`note: underbuilt unit
+MERRIN (relic 0)`). Two soft problems disqualify the team, and an underbuilt
+leader always does. Tolerated slots are charged score so a barely-fieldable team
+never outranks a fully built one.
+
+- **Exempt a leader** (e.g. `GLLEIA`) so teams they lead survive the relic
+  minimum on support units — the leader is assumed to carry the fight. Every
+  unit must still be on your roster, and a waived team is scored as if the
+  weak units had just cleared the bar, so it never looks artificially cheap.
 - **Lock a whole team as always-offense** so it's excluded from defense planning.
 - Review ranked defensive candidates at `/defense`.
+- **Email yourself the attack plan** with one button on the attack screen.
 
 All of these persist to CSV rule files under `team_lists/` and trigger a
 recalculation.
+
+### Emailing the plan
+
+The **Email me this plan** button sends the current attack plan over Gmail SMTP.
+Gmail rejects account passwords for SMTP, so generate a 16-character
+[app password](https://myaccount.google.com/apppasswords) (the account needs
+2-Step Verification) and enter it with your Gmail address on the Setup tab.
+Credentials are stored in `email_settings.json`, which is gitignored; environment
+variables override the file if you'd rather not write the password to disk:
+
+```powershell
+$env:SWGOH_GMAIL_ADDRESS = "you@gmail.com"
+$env:SWGOH_GMAIL_APP_PASSWORD = "xxxxxxxxxxxxxxxx"
+$env:SWGOH_EMAIL_TO = "someone-else@example.com"   # optional; defaults to yourself
+```
 
 ## Development
 

@@ -38,7 +38,7 @@ swgoh-web = "swgoh.web.app:main"
 packages = ["swgoh", "swgoh.web"]
 
 [tool.setuptools.package-data]
-"swgoh.web" = ["templates/*.html", "static/*.css"]
+"swgoh.web" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.ruff]
 line-length = 100
