@@ -1,6 +1,7 @@
 {
   "my_player_id": "848865876",
-  "enemy_player_id": "255227625",
-  "history_limit": "6",
-  "gac_format": "3v3"
+  "enemy_player_id": "955978779",
+  "history_limit": "7",
+  "gac_format": "5v5",
+  "counter_season_id": "80"
 }

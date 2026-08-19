@@ -12,6 +12,7 @@ import csv
 import json
 import subprocess
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from swgoh.make_strategy import (
+    LEADER_EXEMPTIONS_FILE,
     LOCKED_MATCHUPS_FILE,
     OFFENSE_TEAM_LOCKS_FILE,
     REJECTIONS_FILE,
@@ -28,7 +30,9 @@ from swgoh.make_strategy import (
     choose_strategy,
     counter_signature,
     dedupe_defenses_by_leader,
+    find_valid_counters_for_defense,
     load_csvs,
+    load_leader_exemptions,
     load_locked_matchup_signatures,
     load_offense_team_lock_signatures,
     load_rejected_counter_signatures,
@@ -56,6 +60,7 @@ DEFAULT_PIPELINE_SETTINGS = {
     "enemy_player_id": "721192678",
     "history_limit": "3",
     "gac_format": "5v5",
+    "counter_season_id": "",
 }
 
 STRATEGY_INPUT_FILES = [
@@ -67,6 +72,7 @@ STRATEGY_INPUT_FILES = [
     RESERVED_UNITS_FILE,
     OFFENSE_TEAM_LOCKS_FILE,
     THREE_V_THREE_OFFENSE_TEAM_LOCKS_FILE,
+    LEADER_EXEMPTIONS_FILE,
 ]
 DEFENSE_PLAN_INPUT_FILES = [
     ROSTER_FILE,
@@ -86,6 +92,7 @@ REMOVABLE_RULE_FILES = {
     "offense_team_locks_3v3": THREE_V_THREE_OFFENSE_TEAM_LOCKS_FILE,
     "strategy_rejections": REJECTIONS_FILE,
     "reserved_units": RESERVED_UNITS_FILE,
+    "leader_exemptions": LEADER_EXEMPTIONS_FILE,
 }
 
 
@@ -132,6 +139,7 @@ def save_pipeline_settings(
     enemy_player_id: str,
     history_limit: str,
     gac_format: str,
+    counter_season_id: str = "",
 ) -> dict[str, str]:
     settings = {
         "my_player_id": (my_player_id or "").strip() or DEFAULT_PIPELINE_SETTINGS["my_player_id"],
@@ -140,6 +148,7 @@ def save_pipeline_settings(
         "history_limit": (history_limit or "").strip()
         or DEFAULT_PIPELINE_SETTINGS["history_limit"],
         "gac_format": (gac_format or "").strip() or DEFAULT_PIPELINE_SETTINGS["gac_format"],
+        "counter_season_id": (counter_season_id or "").strip(),
     }
     if settings["gac_format"] not in {"all", "3v3", "5v5"}:
         settings["gac_format"] = DEFAULT_PIPELINE_SETTINGS["gac_format"]
@@ -160,6 +169,8 @@ class PipelineState:
     process: subprocess.Popen | None = None
     started_at: str | None = None
     command: list[str] | None = None
+    cancelled: bool = False
+    log_handle: object | None = None
 
 
 _pipeline = PipelineState()
@@ -184,6 +195,20 @@ class PlanCache:
 _cache = PlanCache()
 
 
+def _close_log_handle(final_line: str = "") -> None:
+    if _pipeline.log_handle is None:
+        return
+
+    try:
+        if final_line:
+            _pipeline.log_handle.write(final_line)
+        _pipeline.log_handle.close()
+    except (OSError, ValueError):
+        pass
+
+    _pipeline.log_handle = None
+
+
 def start_pipeline(settings: dict[str, str]) -> str:
     if _pipeline.process is not None and _pipeline.process.poll() is None:
         return "Pipeline is already running."
@@ -201,6 +226,12 @@ def start_pipeline(settings: dict[str, str]) -> str:
         "--gac-format",
         settings["gac_format"],
     ]
+
+    if settings.get("counter_season_id"):
+        command += ["--season-id", settings["counter_season_id"]]
+
+    _close_log_handle()
+
     log_handle = Path(PIPELINE_LOG_FILE).open("w", encoding="utf-8")
     log_handle.write(f"Started {now_text()}\n")
     log_handle.write("Command: " + " ".join(command) + "\n\n")
@@ -211,8 +242,44 @@ def start_pipeline(settings: dict[str, str]) -> str:
     )
     _pipeline.started_at = now_text()
     _pipeline.command = command
+    _pipeline.cancelled = False
+    _pipeline.log_handle = log_handle
     _cache.clear()
     return "Pipeline started. Refresh for status."
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """
+    Stop the pipeline and everything it spawned.
+
+    The pipeline launches Chrome through pydoll, so terminating only the Python
+    process would leave browser children running. Windows needs taskkill for
+    that; elsewhere terminate/kill is enough.
+    """
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        process.terminate()
+
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def stop_pipeline() -> str:
+    if _pipeline.process is None or _pipeline.process.poll() is not None:
+        return "No pipeline is running."
+
+    _kill_process_tree(_pipeline.process)
+    _pipeline.cancelled = True
+    _close_log_handle(f"\nCancelled from the web UI at {now_text()}.\n")
+    _cache.clear()
+    return "Pipeline cancelled."
 
 
 def pipeline_status() -> dict[str, str | int | None]:
@@ -226,6 +293,14 @@ def pipeline_status() -> dict[str, str | int | None]:
             "detail": f"Running since {_pipeline.started_at}; pid {_pipeline.process.pid}",
             "returncode": None,
         }
+
+    if _pipeline.cancelled:
+        return {
+            "state": "cancelled",
+            "detail": f"Cancelled after starting at {_pipeline.started_at}.",
+            "returncode": returncode,
+        }
+
     return {
         "state": "complete" if returncode == 0 else "failed",
         "detail": f"Finished with exit code {returncode}.",
@@ -281,6 +356,7 @@ def rebuild_strategy(force: bool = False) -> tuple[pd.DataFrame, dict[str, list[
         roster_by_unit,
         rejected_counters=load_rejected_counter_signatures(),
         reserved_units=load_reserved_units(),
+        exempt_leaders=load_leader_exemptions(),
         locked_matchups=load_locked_matchup_signatures(),
         offense_team_locks=load_offense_team_lock_signatures(gac_format=gac_format),
     )
@@ -397,6 +473,205 @@ def lock_matchup(
     return f"Locked {counter_leader} into {defense_leader} and recalculated."
 
 
+LOCK_FIELDNAMES = [
+    "created_at", "combat_type", "defense_leader", "defense_name",
+    "counter_leader", "counter_units", "reason",
+]
+
+
+def _rule_rows(path: str) -> list[dict]:
+    """Every row of a rule file as plain dicts, or an empty list if unwritten."""
+    file_path = Path(path)
+    if not file_path.exists() or file_path.stat().st_size == 0:
+        return []
+    with file_path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _write_rule_rows(path: str, fieldnames: list[str], rows: list[dict]) -> None:
+    file_path = Path(path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: row.get(key, "") for key in fieldnames})
+
+
+def counter_options_for_defense(combat_type: str, defense_leader: str) -> list[dict]:
+    """Counter teams that could legally be assigned to one enemy defense.
+
+    Runs the same filters the optimizer uses (roster ownership, rejections,
+    reserved units, win/seen thresholds), so anything returned here is a pick
+    the strategy build will actually honour. Each option is annotated with the
+    defense currently using it, which is what makes a reassignment visible
+    before the user commits to it.
+    """
+    combat_type = str(combat_type).strip()
+    defense_leader = str(defense_leader).strip()
+
+    defense_df, counters_df, roster_df = load_csvs()
+    defense_df, _ = dedupe_defenses_by_leader(defense_df)
+    if defense_df.empty:
+        return []
+
+    matches = defense_df[
+        (defense_df["combat_type"].astype(str) == combat_type)
+        & (defense_df["leader"].astype(str) == defense_leader)
+    ]
+    if matches.empty:
+        return []
+
+    roster_set, roster_by_unit = build_roster_set(roster_df)
+    warnings = defaultdict(list)
+    valid_counters = find_valid_counters_for_defense(
+        matches.iloc[0],
+        counters_df,
+        roster_set,
+        roster_by_unit,
+        warnings,
+        rejected_counters=load_rejected_counter_signatures(),
+        reserved_units=load_reserved_units(),
+        exempt_leaders=load_leader_exemptions(),
+        offense_team_locks=load_offense_team_lock_signatures(
+            gac_format=load_pipeline_settings()["gac_format"]
+        ),
+    )
+
+    strategy_df, _ = rebuild_strategy()
+    used_by = {}
+    for record in strategy_df.to_dict("records"):
+        counter_leader = str(record.get("chosen_counter_leader", "")).strip()
+        if not counter_leader:
+            continue
+        key = (counter_leader, tuple(parse_unit_list(record.get("chosen_counter_units", []))))
+        used_by[key] = str(record.get("defense_leader", ""))
+
+    locked = load_locked_matchup_signatures()
+
+    options = []
+    for counter in valid_counters:
+        counter_leader = str(counter.get("counter_leader", ""))
+        units = parse_unit_list(counter.get("counter_units", []))
+        assigned_to = used_by.get((counter_leader, tuple(units)), "")
+        options.append({
+            "counter_leader": counter_leader,
+            "counter_units": units,
+            "counter_units_repr": repr(units),
+            "win_percent": counter.get("win_percent", ""),
+            "seen": counter.get("seen", ""),
+            "score": counter.get("score", ""),
+            "assigned_to": assigned_to,
+            "is_current": assigned_to == defense_leader,
+            "is_locked": counter_signature(combat_type, defense_leader, counter_leader, units)
+            in locked,
+        })
+    return options
+
+
+def _defense_using_counter(
+    combat_type: str, counter_leader: str, units_key: tuple[str, ...]
+) -> str:
+    """Which defense the current plan spends this exact counter team on."""
+    strategy_df, _ = rebuild_strategy()
+    for record in strategy_df.to_dict("records"):
+        if str(record.get("combat_type", "")).strip() != combat_type:
+            continue
+        if str(record.get("chosen_counter_leader", "")).strip() != counter_leader:
+            continue
+        if tuple(parse_unit_list(record.get("chosen_counter_units", []))) == units_key:
+            return str(record.get("defense_leader", ""))
+    return ""
+
+
+def _defense_has_counter(defense_leader: str) -> bool:
+    strategy_df, _ = rebuild_strategy()
+    for record in strategy_df.to_dict("records"):
+        if str(record.get("defense_leader", "")).strip() == defense_leader:
+            return bool(str(record.get("chosen_counter_leader", "")).strip())
+    return False
+
+
+def assign_counter(
+    combat_type: str,
+    defense_leader: str,
+    defense_name: str,
+    counter_leader: str,
+    counter_units_raw: str,
+    reason: str = "",
+) -> str:
+    """Pin a counter to a defense, taking the team off whatever else held it.
+
+    Manual assignment is a locked matchup, so it reuses that file. Three stale
+    rules are cleared first: an earlier manual pick for this defense, a lock
+    holding this team against a *different* defense (the reassignment), and any
+    rejection of this pairing, which would otherwise filter the pick straight
+    back out.
+    """
+    counter_units = parse_unit_list(counter_units_raw)
+    counter_leader = str(counter_leader).strip()
+    if not counter_leader or not counter_units:
+        return "No assignment made. Pick a counter team first."
+
+    units_key = tuple(counter_units)
+    previous_holder = _defense_using_counter(combat_type, counter_leader, units_key)
+    kept_locks = []
+    for row in _rule_rows(LOCKED_MATCHUPS_FILE):
+        row_combat = str(row.get("combat_type", "")).strip()
+        row_defense = str(row.get("defense_leader", "")).strip()
+        row_counter = str(row.get("counter_leader", "")).strip()
+        row_units = tuple(parse_unit_list(row.get("counter_units", "")))
+
+        if row_combat == combat_type and row_defense == defense_leader:
+            continue
+        if row_combat == combat_type and (row_counter, row_units) == (counter_leader, units_key):
+            continue
+        kept_locks.append(row)
+
+    kept_locks.append({
+        "created_at": now_text(),
+        "combat_type": combat_type,
+        "defense_leader": defense_leader,
+        "defense_name": defense_name,
+        "counter_leader": counter_leader,
+        "counter_units": repr(counter_units),
+        "reason": reason or "Manual assignment",
+    })
+    _write_rule_rows(LOCKED_MATCHUPS_FILE, LOCK_FIELDNAMES, kept_locks)
+
+    rejections = _rule_rows(REJECTIONS_FILE)
+    kept_rejections = [
+        row for row in rejections
+        if not (
+            str(row.get("combat_type", "")).strip() == combat_type
+            and str(row.get("defense_leader", "")).strip() == defense_leader
+            and str(row.get("counter_leader", "")).strip() == counter_leader
+            and tuple(parse_unit_list(row.get("counter_units", ""))) == units_key
+        )
+    ]
+    unrejected = len(kept_rejections) < len(rejections)
+    if unrejected:
+        _write_rule_rows(
+            REJECTIONS_FILE,
+            ["created_at", "combat_type", "defense_leader", "defense_name",
+             "counter_leader", "counter_units", "reason"],
+            kept_rejections,
+        )
+
+    message = f"Assigned {counter_leader} to {defense_leader}"
+    if previous_holder and previous_holder != defense_leader:
+        message += f", taken off the {previous_holder} defense"
+    if unrejected:
+        message += "; cleared an earlier rejection of this pairing"
+    message += " and recalculated."
+
+    if previous_holder and previous_holder != defense_leader:
+        rebuild_strategy(force=True)
+        if not _defense_has_counter(previous_holder):
+            message += f" Warning: the {previous_holder} defense has no counter left."
+    return message
+
+
 def reserve_unit(unit: str, reason: str) -> str:
     unit = (unit or "").strip()
     if unit and unit not in load_reserved_units():
@@ -406,6 +681,20 @@ def reserve_unit(unit: str, reason: str) -> str:
             {"created_at": now_text(), "unit": unit, "reason": reason},
         )
     return f"Reserved counters using {unit} and recalculated."
+
+
+def exempt_leader(leader: str, reason: str) -> str:
+    """Let a leader's teams through even when support units are underbuilt."""
+    leader = (leader or "").strip()
+    if not leader:
+        return "No leader exempted. Provide a base ID."
+    if leader not in load_leader_exemptions():
+        _append_csv_row(
+            LEADER_EXEMPTIONS_FILE,
+            ["created_at", "leader", "reason"],
+            {"created_at": now_text(), "leader": leader, "reason": reason},
+        )
+    return f"Exempted {leader}: teams they lead now ignore the relic minimum on support units."
 
 
 def lock_offense_team(
